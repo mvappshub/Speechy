@@ -10,6 +10,7 @@ from application.job_service import JobService
 
 
 class FakeRuntime:
+    model_name = "fake-runtime"
     long_form_chunk_chars = 40
 
     def __init__(self):
@@ -55,6 +56,11 @@ class FakeRuntime:
 
     def read_final_wav(self, path: Path) -> bytes:
         return path.read_bytes()
+
+    def read_wav(self, path: Path):
+        payload = path.read_text(encoding="utf-8")
+        _, sample_rate, length = payload.split(":")
+        return [0.1] * int(length), int(sample_rate)
 
 
 class PromptFailureRuntime(FakeRuntime):
@@ -149,3 +155,53 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             job = service.get_job(job_id)
             self.assertEqual(job["status"], "error")
             self.assertIn("Voice prompt creation failed", job["error"])
+
+    async def test_project_replay_reuses_cached_blocks_without_regeneration(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = self.make_service(temp_dir, max_active_jobs=2, ttl_seconds=60)
+
+            project = service.sync_project(None, "Prvni veta. Druha veta. Treti veta.", self.make_options())
+            render_job_id = service.render_project(project["id"])
+            self.assertIsNotNone(render_job_id)
+
+            await service.wait_for_project(project["id"])
+
+            initial_renders = len(service.runtime.block_lengths)
+            replay = service.sync_project(project["id"], "Prvni veta. Druha veta. Treti veta.", self.make_options())
+
+            self.assertTrue(all(block["status"] == "done" for block in replay["blocks"]))
+            self.assertIsNone(service.render_project(replay["id"]))
+            self.assertEqual(len(service.runtime.block_lengths), initial_renders)
+
+    async def test_project_partial_edit_only_regenerates_changed_blocks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = self.make_service(temp_dir, max_active_jobs=2, ttl_seconds=60)
+
+            project = service.sync_project(
+                None,
+                "Prvni delsi veta. Druha delsi veta. Treti delsi veta.",
+                self.make_options(),
+            )
+            render_job_id = service.render_project(project["id"])
+            self.assertIsNotNone(render_job_id)
+
+            await service.wait_for_project(project["id"])
+
+            rendered_before_edit = len(service.runtime.block_lengths)
+            updated = service.sync_project(
+                project["id"],
+                "Prvni delsi veta. Upraveny stredni blok. Treti delsi veta.",
+                self.make_options(),
+            )
+
+            statuses = [block["status"] for block in updated["blocks"]]
+            self.assertIn("queued", statuses)
+            self.assertIn("done", statuses)
+
+            second_job_id = service.render_project(updated["id"])
+            self.assertIsNotNone(second_job_id)
+            await service.wait_for_project(updated["id"])
+
+            rerender_count = len(service.runtime.block_lengths) - rendered_before_edit
+            queued_count = sum(1 for status in statuses if status == "queued")
+            self.assertEqual(rerender_count, queued_count)

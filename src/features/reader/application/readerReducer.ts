@@ -1,5 +1,5 @@
 import { clampChunkIndex } from "../domain/chunkSelection";
-import type { Health, PlaybackState, ReaderProgress, ServerStatus, Voice } from "../domain/types";
+import type { Health, PlaybackState, ProjectSummary, ReaderProgress, ServerStatus, Voice } from "../domain/types";
 import type { ReaderAction } from "./readerActions";
 
 export type ReaderState = {
@@ -12,6 +12,8 @@ export type ReaderState = {
   volume: number;
   textScale: number;
   selectedVoice: string;
+  currentProjectId: string | null;
+  projects: ProjectSummary[];
   voices: Voice[];
   uploading: boolean;
   selectedChunk: number;
@@ -28,6 +30,8 @@ export const initialReaderState: ReaderState = {
   volume: 1,
   textScale: 0.35,
   selectedVoice: "speaker.wav",
+  currentProjectId: null,
+  projects: [],
   voices: [],
   uploading: false,
   selectedChunk: 0,
@@ -48,6 +52,10 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
       return { ...state, textScale: action.payload };
     case "voice/set":
       return { ...state, selectedVoice: action.payload };
+    case "project/current":
+      return { ...state, currentProjectId: action.payload };
+    case "projects/set":
+      return { ...state, projects: action.payload };
     case "voices/set":
       return { ...state, voices: action.payload };
     case "server/status":

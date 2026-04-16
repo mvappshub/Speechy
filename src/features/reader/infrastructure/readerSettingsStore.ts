@@ -10,6 +10,7 @@ export function loadReaderSettings() {
       volume?: number;
       textScale?: number;
       selectedVoice?: string;
+      currentProjectId?: string | null;
     };
   } catch {
     return null;
@@ -22,6 +23,7 @@ export function saveReaderSettings(settings: {
   volume: number;
   textScale: number;
   selectedVoice: string;
+  currentProjectId: string | null;
 }) {
   localStorage.setItem(KEY, JSON.stringify(settings));
 }

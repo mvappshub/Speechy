@@ -148,6 +148,10 @@ class XttsRuntime:
     def read_final_wav(self, path: Path) -> bytes:
         return path.read_bytes()
 
+    def read_wav(self, path: Path):
+        waveform, sample_rate = sf.read(path, dtype="float32")
+        return waveform, int(sample_rate)
+
     def _build_generation_config(self, resolved: dict[str, Any]):
         omnivoice = self._load_omnivoice_symbols()
         return omnivoice["OmniVoiceGenerationConfig"](

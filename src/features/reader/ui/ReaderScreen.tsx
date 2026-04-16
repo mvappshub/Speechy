@@ -6,6 +6,7 @@ import { useReaderController } from "../application/useReaderController";
 import { ErrorBanner } from "./ErrorBanner";
 import { PlaybackControls } from "./PlaybackControls";
 import { PlaybackView } from "./PlaybackView";
+import { ProjectSelector } from "./ProjectSelector";
 import { TextEditor } from "./TextEditor";
 import { VoiceSelector } from "./VoiceSelector";
 
@@ -40,6 +41,11 @@ export function ReaderScreen() {
               <Trash2 className="h-3 w-3" />
               Smazat vše
             </button>
+            <ProjectSelector
+              currentProjectId={controller.state.currentProjectId}
+              projects={controller.state.projects}
+              onProjectOpen={(projectId) => void controller.onProjectOpen(projectId)}
+            />
             <VoiceSelector
               selectedVoice={controller.state.selectedVoice}
               voices={controller.state.voices}

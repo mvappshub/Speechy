@@ -1,12 +1,14 @@
-import type { Health, JobStatus, ReaderProgress, ServerStatus, Voice } from "../domain/types";
+import type { Health, JobStatus, ProjectSummary, ReaderProgress, ServerStatus, Voice } from "../domain/types";
 
 export type ReaderAction =
-  | { type: "settings/loaded"; payload: { text: string; speed: number; volume: number; textScale: number; selectedVoice: string } }
+  | { type: "settings/loaded"; payload: { text: string; speed: number; volume: number; textScale: number; selectedVoice: string; currentProjectId: string | null } }
   | { type: "text/set"; payload: string }
   | { type: "speed/set"; payload: number }
   | { type: "volume/set"; payload: number }
   | { type: "textScale/set"; payload: number }
   | { type: "voice/set"; payload: string }
+  | { type: "project/current"; payload: string | null }
+  | { type: "projects/set"; payload: ProjectSummary[] }
   | { type: "voices/set"; payload: Voice[] }
   | { type: "server/status"; payload: { status: ServerStatus; health: Health | null } }
   | { type: "playback/state"; payload: import("../domain/types").PlaybackState }
@@ -25,6 +27,8 @@ export const readerActions = {
   setVolume: (payload: number) => ({ type: "volume/set", payload }) as const,
   setTextScale: (payload: number) => ({ type: "textScale/set", payload }) as const,
   setVoice: (payload: string) => ({ type: "voice/set", payload }) as const,
+  setCurrentProject: (payload: string | null) => ({ type: "project/current", payload }) as const,
+  setProjects: (payload: ProjectSummary[]) => ({ type: "projects/set", payload }) as const,
   setVoices: (payload: Voice[]) => ({ type: "voices/set", payload }) as const,
   setServerStatus: (status: ServerStatus, health: Health | null) =>
     ({ type: "server/status", payload: { status, health } }) as const,

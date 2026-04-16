@@ -11,6 +11,14 @@ export type Voice = {
   has_transcript?: boolean;
 };
 
+export type ProjectSummary = {
+  id: string;
+  title: string;
+  preview: string;
+  created_at: number;
+  updated_at: number;
+};
+
 export type Health = {
   model: string;
   mode?: string;
@@ -37,6 +45,11 @@ export type RenderBlockStatus = {
   error?: string | null;
 };
 
+export type ProjectBlockStatus = RenderBlockStatus & {
+  voice: string;
+  cache_key: string;
+};
+
 export type RenderStatus = {
   id: string;
   status: JobStatus;
@@ -49,6 +62,28 @@ export type RenderStatus = {
   timeline: TimelineBlock[];
   blocks: RenderBlockStatus[];
   error?: string | null;
+};
+
+export type ProjectStatus = "ready" | "running";
+
+export type ProjectSnapshot = {
+  id: string;
+  title: string;
+  text: string;
+  language: string;
+  selected_voice: string;
+  settings: {
+    speed?: number;
+  };
+  created_at: number;
+  updated_at: number;
+  download_ready: boolean;
+  status: ProjectStatus;
+  progress: {
+    done: number;
+    total: number;
+  };
+  blocks: ProjectBlockStatus[];
 };
 
 export type ReaderProgress = {

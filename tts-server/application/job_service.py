@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from domain.text_chunking import split_text_into_chunks
 from domain.types import Job
+from infrastructure.project_store import ProjectStore
 
 if TYPE_CHECKING:
     from infrastructure.xtts_runtime import XttsRuntime
@@ -28,7 +29,13 @@ class JobService:
         self.ttl_seconds = ttl_seconds
         self.storage_dir = storage_dir or Path(tempfile.gettempdir()) / "omnivoice-jobs"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.project_store = ProjectStore(
+            self.storage_dir / "projects-db",
+            getattr(runtime, "model_name", "runtime"),
+        )
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._project_tasks: dict[str, asyncio.Task[None]] = {}
+        self._project_job_ids: dict[str, str] = {}
         self._semaphore = asyncio.Semaphore(max_active_jobs if max_active_jobs > 0 else 1)
 
     def create_job(self, text: str, options: Any) -> str:
@@ -218,10 +225,16 @@ class JobService:
     async def shutdown(self):
         for task in self._tasks.values():
             task.cancel()
+        for task in self._project_tasks.values():
+            task.cancel()
         for task in self._tasks.values():
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        for task in self._project_tasks.values():
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         self._tasks.clear()
+        self._project_tasks.clear()
         self.cleanup_expired_jobs(force=True)
 
     def cleanup_expired_jobs(self, force: bool = False):
@@ -282,3 +295,156 @@ class JobService:
             voice_clone_prompt=prompt,
             options=options,
         )
+
+    def sync_project(self, project_id: str | None, text: str, options: Any):
+        blocks = split_text_into_chunks(text, max_chars=self.runtime.long_form_chunk_chars)
+        if not blocks:
+            raise ValueError("Text is empty")
+        payload = options.model_dump()
+        return self.project_store.sync_project(
+            project_id,
+            text=text,
+            language=payload.get("language", "cs"),
+            settings={"speed": payload.get("speed", 1.0)},
+            selected_voice=payload["voice"],
+            blocks=[{"text": block_text, "voice": payload["voice"]} for block_text in blocks],
+        )
+
+    def list_projects(self):
+        return self.project_store.list_projects()
+
+    def get_project(self, project_id: str):
+        project = self.project_store.get_project(project_id)
+        active_task = self._project_tasks.get(project_id)
+        project["status"] = "running" if active_task and not active_task.done() else "ready"
+        project["progress"] = {
+            "done": project["completed_blocks"],
+            "total": project["total_blocks"],
+        }
+        return project
+
+    def render_project(self, project_id: str):
+        active_task = self._project_tasks.get(project_id)
+        if active_task and not active_task.done():
+            return self._project_job_ids.get(project_id)
+
+        project = self.project_store.get_project(project_id)
+        if all(block["status"] == "done" for block in project["blocks"]):
+            if not project["final_audio_path"]:
+                self._assemble_project_audio(project_id)
+            return None
+
+        job_id = str(uuid.uuid4())
+        self._project_job_ids[project_id] = job_id
+        self._project_tasks[project_id] = asyncio.create_task(self._run_project(project_id))
+        return job_id
+
+    async def wait_for_project(self, project_id: str):
+        task = self._project_tasks.get(project_id)
+        if task:
+            await task
+
+    async def _run_project(self, project_id: str):
+        async with self._semaphore:
+            project = self.project_store.get_project(project_id)
+            settings = project["settings"]
+            prompt_cache: dict[str, Any] = {}
+            loop = asyncio.get_event_loop()
+
+            for block in project["blocks"]:
+                if block["status"] == "done":
+                    continue
+                try:
+                    if block["voice"] not in prompt_cache:
+                        prompt_cache[block["voice"]] = await loop.run_in_executor(
+                            None,
+                            self.runtime.create_voice_clone_prompt,
+                            block["voice"],
+                            True,
+                        )
+
+                    waveform, sample_rate = await loop.run_in_executor(
+                        None,
+                        self._render_block,
+                        block["text"],
+                        self._build_inference_options(
+                            {
+                                "voice": block["voice"],
+                                "language": project["language"],
+                                "speed": settings.get("speed", 1.0),
+                            }
+                        ),
+                        prompt_cache[block["voice"]],
+                    )
+                    duration_ms = int(round((len(waveform) / sample_rate) * 1000))
+                    audio_bytes = await loop.run_in_executor(
+                        None,
+                        self.runtime.write_final_wav,
+                        waveform,
+                        sample_rate,
+                    )
+                    audio_path = self.project_store.save_cached_block(
+                        cache_key=block["cache_key"],
+                        text=block["text"],
+                        voice=block["voice"],
+                        language=project["language"],
+                        settings=settings,
+                        audio_bytes=audio_bytes,
+                        duration_ms=duration_ms,
+                        sample_rate=sample_rate,
+                    )
+                    self.project_store.update_project_block(
+                        project_id,
+                        block["index"],
+                        status="done",
+                        audio_path=audio_path,
+                        duration_ms=duration_ms,
+                        sample_rate=sample_rate,
+                        error=None,
+                    )
+                except Exception as exc:
+                    self.project_store.update_project_block(
+                        project_id,
+                        block["index"],
+                        status="error",
+                        audio_path=None,
+                        duration_ms=None,
+                        sample_rate=None,
+                        error=repr(exc),
+                    )
+                    return
+
+            self._assemble_project_audio(project_id)
+
+    def _assemble_project_audio(self, project_id: str):
+        project = self.project_store.get_project(project_id)
+        if not project["blocks"]:
+            raise ValueError("Project is empty")
+        if any(block["status"] != "done" or not block["audio_path"] for block in project["blocks"]):
+            raise ValueError("Project is not fully rendered")
+
+        rendered_blocks: list[dict[str, Any]] = []
+        for block in project["blocks"]:
+            waveform, sample_rate = self.runtime.read_wav(Path(block["audio_path"]))
+            rendered_blocks.append(
+                {
+                    "index": block["index"],
+                    "text": block["text"],
+                    "waveform": waveform,
+                    "sample_rate": sample_rate,
+                }
+            )
+
+        final_waveform, sample_rate, timeline = self.runtime.concatenate_rendered_blocks(rendered_blocks)
+        audio_bytes = self.runtime.write_final_wav(final_waveform, sample_rate)
+        self.project_store.set_final_audio(project_id, audio_bytes)
+        for timeline_block in timeline:
+            self.project_store.update_project_block(
+                project_id,
+                timeline_block["index"],
+                status="done",
+                audio_path=project["blocks"][timeline_block["index"]]["audio_path"],
+                duration_ms=timeline_block["end_ms"] - timeline_block["start_ms"],
+                sample_rate=sample_rate,
+                error=None,
+            )

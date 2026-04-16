@@ -33,6 +33,10 @@ class RenderRequest(BaseModel):
     speed: float = Field(default=1.0, ge=0.7, le=1.3)
 
 
+class ProjectSyncRequest(RenderRequest):
+    project_id: str | None = None
+
+
 def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = None):
     runtime_instance = runtime
     jobs_instance = jobs
@@ -123,6 +127,110 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"id": job_id, "status": "queued"}
+
+    def serialize_project(project: dict):
+        return {
+            "id": project["id"],
+            "title": project["title"],
+            "text": project["text"],
+            "language": project["language"],
+            "selected_voice": project["selected_voice"],
+            "settings": project["settings"],
+            "created_at": project["created_at"],
+            "updated_at": project["updated_at"],
+            "download_ready": project["download_ready"],
+            "status": project["status"],
+            "progress": project["progress"],
+            "blocks": [
+                {
+                    "index": block["index"],
+                    "text": block["text"],
+                    "voice": block["voice"],
+                    "cache_key": block["cache_key"],
+                    "status": block["status"],
+                    "audio_ready": block["audio_ready"],
+                    "start_ms": block["start_ms"],
+                    "end_ms": block["end_ms"],
+                    "error": block["error"],
+                }
+                for block in project["blocks"]
+            ],
+        }
+
+    @app.get("/api/projects")
+    async def list_projects():
+        jobs = get_jobs()
+        return jobs.list_projects()
+
+    @app.post("/api/projects/sync")
+    async def sync_project(req: ProjectSyncRequest):
+        jobs = get_jobs()
+        if not req.text.strip():
+            raise HTTPException(status_code=400, detail="Text is empty")
+        try:
+            project = jobs.sync_project(
+                req.project_id,
+                req.text,
+                parse_options(
+                    {
+                        "voice": req.voice,
+                        "language": req.language,
+                        "speed": req.speed,
+                    }
+                ),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return serialize_project(jobs.get_project(project["id"]))
+
+    @app.get("/api/projects/{project_id}")
+    async def get_project(project_id: str):
+        jobs = get_jobs()
+        try:
+            project = jobs.get_project(project_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return serialize_project(project)
+
+    @app.post("/api/projects/{project_id}/render")
+    async def render_project(project_id: str):
+        jobs = get_jobs()
+        try:
+            job_id = jobs.render_project(project_id)
+            project = jobs.get_project(project_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {
+            "project": serialize_project(project),
+            "job_id": job_id,
+            "status": "queued" if job_id else "ready",
+        }
+
+    @app.get("/api/projects/{project_id}/blocks/{block_index}/audio")
+    async def get_project_block_audio(project_id: str, block_index: int):
+        jobs = get_jobs()
+        try:
+            audio_path = jobs.project_store.get_block_audio_path(project_id, block_index)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Block not found")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Block status is {exc}")
+        return StreamingResponse(io.BytesIO(Path(audio_path).read_bytes()), media_type="audio/wav")
+
+    @app.get("/api/projects/{project_id}/download")
+    async def download_project_audio(project_id: str):
+        jobs = get_jobs()
+        try:
+            audio_path = jobs.project_store.get_final_audio_path(project_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Project not found")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Project download is {exc}")
+        return StreamingResponse(
+            io.BytesIO(Path(audio_path).read_bytes()),
+            media_type="audio/wav",
+            headers={"Content-Disposition": f'attachment; filename=\"{project_id}.wav\"'},
+        )
 
     @app.get("/api/render/{job_id}")
     async def get_render_status(job_id: str):

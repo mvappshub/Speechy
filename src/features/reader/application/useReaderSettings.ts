@@ -16,6 +16,7 @@ export function useReaderSettings(state: ReaderState, dispatch: Dispatch) {
       volume: settings.volume ?? initialReaderState.volume,
       textScale: settings.textScale ?? initialReaderState.textScale,
       selectedVoice: settings.selectedVoice ?? initialReaderState.selectedVoice,
+      currentProjectId: settings.currentProjectId ?? initialReaderState.currentProjectId,
     }));
   }, [dispatch]);
 
@@ -26,6 +27,7 @@ export function useReaderSettings(state: ReaderState, dispatch: Dispatch) {
       volume: state.volume,
       textScale: state.textScale,
       selectedVoice: state.selectedVoice,
+      currentProjectId: state.currentProjectId,
     });
-  }, [state.selectedVoice, state.speed, state.text, state.textScale, state.volume]);
+  }, [state.currentProjectId, state.selectedVoice, state.speed, state.text, state.textScale, state.volume]);
 }
