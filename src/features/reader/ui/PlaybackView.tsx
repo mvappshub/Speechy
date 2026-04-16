@@ -53,7 +53,7 @@ export function PlaybackView({
                 setHoveredChunkIndex((current) => (current === chunk.index ? null : current));
                 setEditingChunkIndex((current) => (current === chunk.index ? null : current));
               }}
-              className="mb-3 grid grid-cols-[minmax(0,1fr)_8.5rem] items-start gap-4"
+              className="mb-3 grid grid-cols-[minmax(0,1fr)_7rem] items-start gap-4"
             >
               <button
                 type="button"
@@ -69,9 +69,11 @@ export function PlaybackView({
                 {chunk.text}
               </button>
 
-              <div className={`flex min-h-[1.6em] items-start justify-end pt-1 text-[10px] font-medium uppercase tracking-[0.18em] ${
-                state === "active" ? "text-black" : "text-gray-400"
-              }`}>
+              <div
+                className={`flex min-h-[1.6em] items-start justify-end gap-2 pt-1 text-[10px] font-medium uppercase tracking-[0.18em] ${
+                  state === "active" ? "text-black" : "text-gray-400"
+                }`}
+              >
                 {isEditingVoice ? (
                   <select
                     value={blockVoices[chunk.index] ?? voices[0]?.name ?? ""}
@@ -90,18 +92,26 @@ export function PlaybackView({
                     ))}
                   </select>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (canAssignVoice) setEditingChunkIndex(chunk.index);
-                    }}
-                    className={`truncate text-right transition-opacity ${
-                      showVoiceAction ? "opacity-100 text-black" : "opacity-80"
-                    }`}
-                  >
-                    {formatVoiceLabel(blockVoices[chunk.index] ?? voices[0]?.name)}
-                  </button>
+                  <>
+                    <span className="truncate text-right">
+                      {formatVoiceLabel(blockVoices[chunk.index] ?? voices[0]?.name)}
+                    </span>
+                    {canAssignVoice ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setEditingChunkIndex(chunk.index);
+                        }}
+                        className={`shrink-0 transition-opacity ${
+                          showVoiceAction ? "opacity-100 text-black" : "pointer-events-none opacity-0"
+                        }`}
+                        aria-label="Změnit hlas bloku"
+                      >
+                        •••
+                      </button>
+                    ) : null}
+                  </>
                 )}
               </div>
             </div>

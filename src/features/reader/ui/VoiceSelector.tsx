@@ -22,6 +22,7 @@ export function VoiceSelector({
     () => voices.find((voice) => voice.name === selectedVoice) ?? voices[0] ?? null,
     [selectedVoice, voices],
   );
+  const formatVoiceLabel = (value: string | undefined) => (value ?? "Hlas").replace(/\.wav$/i, "");
 
   return (
     <div className="relative flex items-center gap-2">
@@ -32,7 +33,7 @@ export function VoiceSelector({
         className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.2em] text-gray-400 transition-colors hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Mic className="h-3 w-3" />
-        <span>{activeVoice?.name ?? "Hlas"}</span>
+        <span>{formatVoiceLabel(activeVoice?.name)}</span>
         <ChevronDown className="h-3 w-3" />
       </button>
 
@@ -60,7 +61,7 @@ export function VoiceSelector({
                 voice.name === selectedVoice ? "bg-black text-white" : "text-black hover:bg-gray-100"
               }`}
             >
-              <span>{voice.name}</span>
+              <span>{formatVoiceLabel(voice.name)}</span>
               <span className="text-[10px] uppercase tracking-[0.2em]">
                 {voice.is_default ? "Výchozí" : voice.has_transcript ? "TXT" : "WAV"}
               </span>

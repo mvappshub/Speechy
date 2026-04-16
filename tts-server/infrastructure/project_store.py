@@ -13,10 +13,7 @@ def _normalize_text(value: str) -> str:
 
 
 def _derive_title(text: str) -> str:
-    normalized = _normalize_text(text)
-    if not normalized:
-        return "Novy projekt"
-    return normalized[:48]
+    return "Novy projekt"
 
 
 class ProjectStore:
@@ -50,12 +47,14 @@ class ProjectStore:
 
         with self._connection() as conn:
             created_at = previous["created_at"] if previous else now
+            title = previous["title"] if previous else _derive_title(text)
+            pinned = previous["pinned"] if previous else 0
             conn.execute(
                 """
                 INSERT INTO projects (
                     id, title, text, language, selected_voice, settings_json, output_metadata_json,
-                    final_audio_path, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    final_audio_path, pinned, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     title=excluded.title,
                     text=excluded.text,
@@ -64,17 +63,19 @@ class ProjectStore:
                     settings_json=excluded.settings_json,
                     output_metadata_json=excluded.output_metadata_json,
                     final_audio_path=excluded.final_audio_path,
+                    pinned=excluded.pinned,
                     updated_at=excluded.updated_at
                 """,
                 (
                     resolved_id,
-                    _derive_title(text),
+                    title,
                     text,
                     language,
                     selected_voice,
                     json.dumps(settings, sort_keys=True),
                     json.dumps({}, sort_keys=True),
                     final_audio_path,
+                    pinned,
                     created_at,
                     now,
                 ),
@@ -126,10 +127,10 @@ class ProjectStore:
         with self._connection() as conn:
             rows = conn.execute(
                 """
-                SELECT id, title, text, updated_at, created_at
+                SELECT id, title, text, pinned, updated_at, created_at
                 FROM projects
-                ORDER BY updated_at DESC
-                LIMIT 20
+                ORDER BY pinned DESC, updated_at DESC
+                LIMIT 100
                 """
             ).fetchall()
         return [
@@ -137,6 +138,7 @@ class ProjectStore:
                 "id": row["id"],
                 "title": row["title"],
                 "preview": _normalize_text(row["text"])[:96],
+                "pinned": bool(row["pinned"]),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
@@ -165,6 +167,7 @@ class ProjectStore:
             "title": project["title"],
             "text": project["text"],
             "language": project["language"],
+            "pinned": bool(project["pinned"]),
             "selected_voice": project["selected_voice"],
             "settings": json.loads(project["settings_json"]),
             "created_at": project["created_at"],
@@ -191,6 +194,64 @@ class ProjectStore:
                 for block in blocks
             ],
         }
+
+    def create_project(self, *, title: str | None, selected_voice: str):
+        now = time()
+        project_id = str(uuid.uuid4())
+        with self._connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO projects (
+                    id, title, text, language, selected_voice, settings_json, output_metadata_json,
+                    final_audio_path, pinned, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_id,
+                    title.strip() if title and title.strip() else "Novy projekt",
+                    "",
+                    "cs",
+                    selected_voice,
+                    json.dumps({"speed": 1.0}, sort_keys=True),
+                    json.dumps({}, sort_keys=True),
+                    None,
+                    0,
+                    now,
+                    now,
+                ),
+            )
+        return self.get_project(project_id)
+
+    def update_project_metadata(
+        self,
+        project_id: str,
+        *,
+        title: str | None = None,
+        pinned: bool | None = None,
+    ):
+        project = self.get_project(project_id)
+        next_title = title.strip() if title is not None and title.strip() else project["title"]
+        next_pinned = int(pinned if pinned is not None else project["pinned"])
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE projects SET title = ?, pinned = ?, updated_at = ? WHERE id = ?",
+                (next_title, next_pinned, time(), project_id),
+            )
+        return self.get_project(project_id)
+
+    def delete_project(self, project_id: str):
+        project = self.get_project(project_id)
+        with self._connection() as conn:
+            conn.execute("DELETE FROM project_blocks WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        project_dir = self.projects_dir / project_id
+        if project_dir.exists():
+            for child in project_dir.iterdir():
+                with contextlib.suppress(OSError):
+                    child.unlink()
+            with contextlib.suppress(OSError):
+                project_dir.rmdir()
+        return project
 
     def get_cached_block(self, cache_key: str, *, conn: sqlite3.Connection | None = None):
         owner = conn or self._connect()
@@ -403,6 +464,7 @@ class ProjectStore:
                     settings_json TEXT NOT NULL,
                     output_metadata_json TEXT NOT NULL,
                     final_audio_path TEXT,
+                    pinned INTEGER NOT NULL DEFAULT 0,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
@@ -437,3 +499,6 @@ class ProjectStore:
                 );
                 """
             )
+            project_columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
+            if "pinned" not in project_columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")

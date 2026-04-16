@@ -15,6 +15,7 @@ export type ProjectSummary = {
   id: string;
   title: string;
   preview: string;
+  pinned: boolean;
   created_at: number;
   updated_at: number;
 };
@@ -71,6 +72,7 @@ export type ProjectSnapshot = {
   title: string;
   text: string;
   language: string;
+  pinned: boolean;
   selected_voice: string;
   settings: {
     speed?: number;

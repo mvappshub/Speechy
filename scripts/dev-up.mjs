@@ -100,6 +100,18 @@ console.log(`Frontend URL: ${urls.frontend}`);
 console.log(`Health check URL: ${urls.health}`);
 console.log("Processes will stop together if one crashes.");
 
+const [backendPortAvailable, frontendPortAvailable] = await Promise.all([
+  checkPortAvailable(8000),
+  checkPortAvailable(3000),
+]);
+
+if (!backendPortAvailable || !frontendPortAvailable) {
+  console.error("Cannot start local development stack because required ports are already in use.");
+  if (!backendPortAvailable) console.error("Port 8000 is already in use. Stop the existing backend before retrying.");
+  if (!frontendPortAvailable) console.error("Port 3000 is already in use. Stop the existing frontend before retrying.");
+  process.exit(1);
+}
+
 startProcess({
   label: "backend",
   command: pythonCommand,
@@ -116,15 +128,3 @@ startProcess({
 
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
-
-const [backendPortAvailable, frontendPortAvailable] = await Promise.all([
-  checkPortAvailable(8000),
-  checkPortAvailable(3000),
-]);
-
-if (!backendPortAvailable || !frontendPortAvailable) {
-  console.error("Cannot start local development stack because required ports are already in use.");
-  if (!backendPortAvailable) console.error("Port 8000 is already in use. Stop the existing backend before retrying.");
-  if (!frontendPortAvailable) console.error("Port 3000 is already in use. Stop the existing frontend before retrying.");
-  process.exit(1);
-}

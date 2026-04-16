@@ -78,10 +78,14 @@ export function useLongFormPlaybackSession({
       dispatch(
         readerActions.setProgress({
           current: Math.max(project.progress.done, 0),
-          total: Math.max(project.progress.total, 1),
+          total: Math.max(project.progress.total, 0),
           done: project.progress.done,
           status:
-            project.progress.done >= project.progress.total && project.progress.total > 0 ? "done" : "running",
+            project.progress.total === 0
+              ? "queued"
+              : project.progress.done >= project.progress.total
+                ? "done"
+                : "running",
         }),
       );
     },
@@ -167,6 +171,15 @@ export function useLongFormPlaybackSession({
           }
         }
 
+        if (
+          project.status === "ready" &&
+          project.progress.total > 0 &&
+          project.progress.done < project.progress.total
+        ) {
+          const restarted = await startProjectRender(projectId);
+          applyProject(restarted.project);
+        }
+
         if (project.progress.done >= project.progress.total) {
           stopPolling();
           return;
@@ -249,6 +262,28 @@ export function useLongFormPlaybackSession({
     state.text,
   ]);
 
+  const prepareProject = useCallback(
+    async (input: { text: string; voice: string; speed: number; projectId?: string | null; blocks: PlaybackChunk[]; blockVoices: string[] }) => {
+      if (!input.text.trim() || !input.blocks.length) return null;
+      const project = await syncProject({
+        projectId: input.projectId,
+        text: input.text,
+        voice: input.voice,
+        blocks: input.blocks.map((chunk, index) => ({
+          text: chunk.text,
+          voice: input.blockVoices[index] ?? input.voice,
+        })),
+        blockVoices: input.blockVoices,
+        speed: input.speed,
+        language: "cs",
+      });
+      applyProject(project);
+      await refreshProjects();
+      return project;
+    },
+    [applyProject, refreshProjects],
+  );
+
   const onPause = useCallback(() => {
     audioPlayerRef.current.pause();
     dispatch(readerActions.setPlaybackState("paused"));
@@ -306,6 +341,7 @@ export function useLongFormPlaybackSession({
         end: block.index + 1,
       })) ?? chunks,
     downloadUrl: projectRef.current?.download_ready ? getProjectDownloadUrl(projectRef.current.id) : null,
+    prepareProject,
     onPlay,
     onPause,
     onResume,

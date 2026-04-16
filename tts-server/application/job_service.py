@@ -331,6 +331,29 @@ class JobService:
     def list_projects(self):
         return self.project_store.list_projects()
 
+    def create_project(self, *, title: str | None = None):
+        project = self.project_store.create_project(
+            title=title,
+            selected_voice=self.runtime.voice_store.default_voice_name,
+        )
+        return self.get_project(project["id"])
+
+    def update_project_metadata(
+        self,
+        project_id: str,
+        *,
+        title: str | None = None,
+        pinned: bool | None = None,
+    ):
+        return self.project_store.update_project_metadata(project_id, title=title, pinned=pinned)
+
+    def delete_project(self, project_id: str):
+        active_task = self._project_tasks.pop(project_id, None)
+        if active_task and not active_task.done():
+            active_task.cancel()
+        self._project_job_ids.pop(project_id, None)
+        return self.project_store.delete_project(project_id)
+
     def get_project(self, project_id: str):
         project = self.project_store.get_project(project_id)
         active_task = self._project_tasks.get(project_id)

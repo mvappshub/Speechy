@@ -10,29 +10,100 @@ export function getTtsApiBaseUrl() {
 
 const API = getTtsApiBaseUrl();
 
+function toApiError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    if (error.message === "Failed to fetch") {
+      return new Error("Nepodařilo se spojit s TTS backendem.");
+    }
+    return error;
+  }
+  return new Error(fallback);
+}
+
 export async function fetchHealth() {
-  const response = await fetch(`${API}/api/health`, { signal: AbortSignal.timeout(3000) });
-  if (!response.ok) throw new Error("Server unavailable");
-  return (await response.json()) as Health;
+  try {
+    const response = await fetch(`${API}/api/health`, { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) throw new Error("Server unavailable");
+    return (await response.json()) as Health;
+  } catch (error) {
+    throw toApiError(error, "Server unavailable");
+  }
 }
 
 export async function fetchVoices() {
-  const response = await fetch(`${API}/api/voices`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Unable to load voices");
-  const payload = await response.json();
-  return payload as { default_voice: string; voices: Voice[] };
+  try {
+    const response = await fetch(`${API}/api/voices`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to load voices");
+    const payload = await response.json();
+    return payload as { default_voice: string; voices: Voice[] };
+  } catch (error) {
+    throw toApiError(error, "Unable to load voices");
+  }
 }
 
 export async function fetchProjects() {
-  const response = await fetch(`${API}/api/projects`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Unable to load projects");
-  return (await response.json()) as ProjectSummary[];
+  try {
+    const response = await fetch(`${API}/api/projects`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to load projects");
+    return (await response.json()) as ProjectSummary[];
+  } catch (error) {
+    throw toApiError(error, "Unable to load projects");
+  }
 }
 
 export async function fetchProject(projectId: string) {
-  const response = await fetch(`${API}/api/projects/${projectId}`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Unable to load project.");
-  return (await response.json()) as ProjectSnapshot;
+  try {
+    const response = await fetch(`${API}/api/projects/${projectId}`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to load project.");
+    return (await response.json()) as ProjectSnapshot;
+  } catch (error) {
+    throw toApiError(error, "Unable to load project.");
+  }
+}
+
+export async function createProject(input?: { title?: string }) {
+  try {
+    const response = await fetch(`${API}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: input?.title ?? null }),
+    });
+    if (!response.ok) throw new Error("Unable to create project.");
+    return (await response.json()) as ProjectSnapshot;
+  } catch (error) {
+    throw toApiError(error, "Unable to create project.");
+  }
+}
+
+export async function updateProject(
+  projectId: string,
+  input: { title?: string; pinned?: boolean },
+) {
+  try {
+    const response = await fetch(`${API}/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: input.title,
+        pinned: input.pinned,
+      }),
+    });
+    if (!response.ok) throw new Error("Unable to update project.");
+    return (await response.json()) as ProjectSnapshot;
+  } catch (error) {
+    throw toApiError(error, "Unable to update project.");
+  }
+}
+
+export async function deleteProject(projectId: string) {
+  try {
+    const response = await fetch(`${API}/api/projects/${projectId}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) throw new Error("Unable to delete project.");
+  } catch (error) {
+    throw toApiError(error, "Unable to delete project.");
+  }
 }
 
 export async function syncProject(input: {

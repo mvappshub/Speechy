@@ -13,7 +13,7 @@ import { VoiceSelector } from "./VoiceSelector";
 export function ReaderScreen() {
   const controller = useReaderController();
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const isPlaybackVisible = controller.state.isBlockMode || controller.state.playbackState !== "idle";
+  const isPlaybackVisible = controller.state.isBlockMode;
 
   return (
     <div className="min-h-screen w-full bg-white font-sans">
@@ -21,6 +21,10 @@ export function ReaderScreen() {
         currentProjectId={controller.state.currentProjectId}
         projects={controller.state.projects}
         onProjectOpen={(projectId) => void controller.onProjectOpen(projectId)}
+        onProjectCreate={() => void controller.onProjectCreate()}
+        onProjectRename={(projectId, title) => void controller.onProjectRename(projectId, title)}
+        onProjectPin={(projectId, pinned) => void controller.onProjectPin(projectId, pinned)}
+        onProjectDelete={(projectId) => void controller.onProjectDelete(projectId)}
       />
       <div className="mx-auto flex min-h-screen w-full max-w-[1200px] flex-col p-6 md:p-12 lg:p-16">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4 text-[10px] font-medium uppercase tracking-[0.2em] text-gray-400">
@@ -33,7 +37,7 @@ export function ReaderScreen() {
               Vyčistit text
             </button>
             <button
-              onClick={controller.onSplitBlocks}
+              onClick={() => void controller.onSplitBlocks()}
               disabled={!controller.state.text.trim()}
               className="flex items-center gap-1 text-inherit transition-colors hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
             >

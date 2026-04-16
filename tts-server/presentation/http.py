@@ -39,6 +39,15 @@ class ProjectSyncRequest(RenderRequest):
     block_voices: list[str] | None = None
 
 
+class ProjectCreateRequest(BaseModel):
+    title: str | None = None
+
+
+class ProjectUpdateRequest(BaseModel):
+    title: str | None = None
+    pinned: bool | None = None
+
+
 def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = None):
     runtime_instance = runtime
     jobs_instance = jobs
@@ -136,6 +145,7 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
             "title": project["title"],
             "text": project["text"],
             "language": project["language"],
+            "pinned": project.get("pinned", False),
             "selected_voice": project["selected_voice"],
             "settings": project["settings"],
             "created_at": project["created_at"],
@@ -164,25 +174,34 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
         jobs = get_jobs()
         return jobs.list_projects()
 
+    @app.post("/api/projects")
+    async def create_project(req: ProjectCreateRequest):
+        jobs = get_jobs()
+        return serialize_project(jobs.create_project(title=req.title))
+
     @app.post("/api/projects/sync")
     async def sync_project(req: ProjectSyncRequest):
         jobs = get_jobs()
         if not req.text.strip():
             raise HTTPException(status_code=400, detail="Text is empty")
         try:
-            project = jobs.sync_project(
-                req.project_id,
-                req.text,
-                parse_options(
-                    {
-                        "voice": req.voice,
-                        "language": req.language,
-                        "speed": req.speed,
-                    }
-                ),
-                blocks=req.blocks,
-                block_voices=req.block_voices,
+            options = parse_options(
+                {
+                    "voice": req.voice,
+                    "language": req.language,
+                    "speed": req.speed,
+                }
             )
+            try:
+                project = jobs.sync_project(
+                    req.project_id,
+                    req.text,
+                    options,
+                    blocks=req.blocks,
+                    block_voices=req.block_voices,
+                )
+            except TypeError:
+                project = jobs.sync_project(req.project_id, req.text, options)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return serialize_project(jobs.get_project(project["id"]))
@@ -195,6 +214,24 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
         except KeyError:
             raise HTTPException(status_code=404, detail="Project not found")
         return serialize_project(project)
+
+    @app.patch("/api/projects/{project_id}")
+    async def update_project(project_id: str, req: ProjectUpdateRequest):
+        jobs = get_jobs()
+        try:
+            project = jobs.update_project_metadata(project_id, title=req.title, pinned=req.pinned)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return serialize_project(project)
+
+    @app.delete("/api/projects/{project_id}")
+    async def delete_project(project_id: str):
+        jobs = get_jobs()
+        try:
+            jobs.delete_project(project_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {"ok": True}
 
     @app.post("/api/projects/{project_id}/render")
     async def render_project(project_id: str):
