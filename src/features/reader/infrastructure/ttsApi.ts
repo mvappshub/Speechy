@@ -1,0 +1,76 @@
+import type { Health, RenderStatus, Voice } from "../domain/types";
+
+const DEFAULT_TTS_API_BASE_URL = "http://localhost:8000";
+
+export function getTtsApiBaseUrl() {
+  const configuredBaseUrl = process.env.NEXT_PUBLIC_TTS_API_BASE_URL?.trim();
+  if (!configuredBaseUrl) return DEFAULT_TTS_API_BASE_URL;
+  return configuredBaseUrl.replace(/\/+$/, "");
+}
+
+const API = getTtsApiBaseUrl();
+
+export async function fetchHealth() {
+  const response = await fetch(`${API}/api/health`, { signal: AbortSignal.timeout(3000) });
+  if (!response.ok) throw new Error("Server unavailable");
+  return (await response.json()) as Health;
+}
+
+export async function fetchVoices() {
+  const response = await fetch(`${API}/api/voices`, { cache: "no-store" });
+  if (!response.ok) throw new Error("Unable to load voices");
+  const payload = await response.json();
+  return payload as { default_voice: string; voices: Voice[] };
+}
+
+export async function uploadVoice(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(`${API}/api/voices`, { method: "POST", body: form });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Voice upload failed." }));
+    throw new Error(err.detail || "Voice upload failed.");
+  }
+  return await response.json();
+}
+
+export async function startRender(input: {
+  text: string;
+  voice: string;
+  language?: string;
+  speed?: number;
+}) {
+  const response = await fetch(`${API}/api/render`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: input.text,
+      voice: input.voice,
+      language: input.language ?? "cs",
+      speed: input.speed ?? 1,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Render failed." }));
+    throw new Error(err.detail || "Render failed.");
+  }
+
+  return (await response.json()) as { id: string; status: string };
+}
+
+export async function fetchRenderStatus(jobId: string) {
+  const response = await fetch(`${API}/api/render/${jobId}`, { cache: "no-store" });
+  if (!response.ok) throw new Error("Unable to fetch render status.");
+  return (await response.json()) as RenderStatus;
+}
+
+export async function fetchRenderAudioBlob(jobId: string) {
+  const response = await fetch(`${API}/api/render/${jobId}/audio`);
+  if (!response.ok) throw new Error("Unable to fetch final audio.");
+  return await response.blob();
+}
+
+export function getRenderDownloadUrl(jobId: string) {
+  return `${API}/api/render/${jobId}/download`;
+}

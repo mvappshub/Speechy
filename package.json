@@ -3,14 +3,16 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
-    "lint": "eslint .",
-    "db:push": "prisma db push",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "dev": "node scripts/run-with-log.mjs dev.log next dev --webpack -p 3000",
+    "build": "next build && node -e \"const fs=require('fs');fs.mkdirSync('.next/standalone/.next',{recursive:true});fs.cpSync('.next/static','.next/standalone/.next/static',{recursive:true});if(fs.existsSync('public'))fs.cpSync('public','.next/standalone/public',{recursive:true});\"",
+    "start": "node scripts/run-with-log.mjs server.log node .next/standalone/server.js",
+    "lint": "eslint . && node scripts/check-architecture.mjs && node scripts/check-governance.mjs",
+    "check:architecture": "node scripts/check-architecture.mjs",
+    "check:governance": "node scripts/check-governance.mjs",
+    "test:frontend": "node --import tsx --test src/features/reader/domain/*.test.ts",
+    "test:backend": "python -m unittest discover -s tts-server/tests -v",
+    "test": "npm run test:frontend && npm run test:backend",
+    "verify": "npm run check:architecture && npm run check:governance && npm run test && npm run lint && npm run build"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -57,18 +59,18 @@
     "framer-motion": "^12.23.2",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.525.0",
-    "next": "^16.1.1",
+    "next": "^16.2.3",
     "next-auth": "^4.24.11",
     "next-intl": "^4.3.4",
     "next-themes": "^0.4.6",
     "prisma": "^6.11.1",
-    "react": "^19.0.0",
+    "react": "^18.3.1",
     "react-day-picker": "^9.8.0",
-    "react-dom": "^19.0.0",
+    "react-dom": "^18.3.1",
     "react-hook-form": "^7.60.0",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^3.0.3",
-    "react-syntax-highlighter": "^15.6.1",
+    "react-syntax-highlighter": "^16.1.1",
     "recharts": "^2.15.4",
     "sharp": "^0.34.3",
     "sonner": "^2.0.6",
@@ -88,7 +90,9 @@
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",
+    "tsx": "^4.20.6",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

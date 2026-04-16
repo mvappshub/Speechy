@@ -4,11 +4,11 @@
 
 echo "╔══════════════════════════════════════════════╗"
 echo "║   Předčítač Českého Textu - TTS Server      ║"
-echo "║   Model: facebook/mms-tts-ces               ║"
+echo "║   Model: k2-fsa/OmniVoice                   ║"
 echo "║   Port: 8000                                ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
-echo "První spuštění stáhne model z HuggingFace (~80 MB)."
+echo "První spuštění může trvat déle kvůli přípravě modelu."
 echo ""
 
 cd "$(dirname "$0")"

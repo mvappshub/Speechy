@@ -1,0 +1,45 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e6]: 3 s
+        - generic [ref=e7]:
+          - button "Vyčistit" [ref=e8]:
+            - img [ref=e9]
+            - text: Vyčistit
+          - button "Kopírovat" [ref=e11]:
+            - img [ref=e12]
+            - text: Kopírovat
+          - button "Vymazat" [ref=e15]:
+            - img [ref=e16]
+            - text: Vymazat
+      - generic [ref=e19]:
+        - textbox "Napište text zde..." [ref=e20]: Ahoj. Napiš cokoliv a já to přečtu pomocí OmniVoice.
+        - generic [ref=e21]: Dvojklik v textu nastaví blok, od kterého se začne přehrávat
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - heading "Předčítač Českého Textu" [level=1] [ref=e25]
+          - generic [ref=e26]:
+            - generic [ref=e27]: OmniVoice
+            - generic [ref=e28]: •
+            - generic [ref=e29]: Kontroluji...
+        - generic [ref=e31]:
+          - generic [ref=e32]:
+            - generic [ref=e33]: MVP
+            - paragraph [ref=e34]: Vložte český text, vyberte hlas a nechte vyrenderovat finální WAV. Přehrávání začne až po dokončení renderu.
+          - generic [ref=e35]:
+            - generic [ref=e36]:
+              - generic [ref=e37]: Hlas
+              - generic [ref=e38]: speaker.wav
+            - combobox [ref=e39]
+            - button "+ Přidat WAV hlas" [ref=e40]:
+              - generic [ref=e41]: +
+              - text: Přidat WAV hlas
+      - button "Generovat a přehrát ▶" [disabled] [ref=e43]:
+        - generic [ref=e44]: Generovat a přehrát
+        - generic [ref=e45]: ▶
+  - region "Notifications (F8)":
+    - list
+  - button "Open Next.js Dev Tools" [ref=e51] [cursor=pointer]:
+    - img [ref=e52]

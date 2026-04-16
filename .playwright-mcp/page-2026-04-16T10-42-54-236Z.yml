@@ -1,0 +1,69 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e6]: 7 s
+          - generic [ref=e272]: 2/2 bloků
+        - generic [ref=e7]:
+          - button "Vyčistit" [ref=e8]:
+            - img [ref=e9]
+            - text: Vyčistit
+          - button "Kopírovat" [ref=e11]:
+            - img [ref=e12]
+            - text: Kopírovat
+          - button "Vymazat" [ref=e15]:
+            - img [ref=e16]
+            - text: Vymazat
+      - generic [ref=e19]:
+        - textbox "Napište text zde..." [ref=e310]: Ahoj, tohle je krátká ukázka českého čtení. Druhý odstavec slouží k tomu, aby aplikace vytvořila více bloků a bylo možné ověřit zvýraznění během přehrávání.
+        - generic [ref=e311]: Dvojklik v textu nastaví blok, od kterého se začne přehrávat
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - heading "Předčítač Českého Textu" [level=1] [ref=e25]
+          - generic [ref=e26]:
+            - generic [ref=e27]: k2-fsa/OmniVoice
+            - generic [ref=e28]: •
+            - generic [ref=e29]: Server online
+        - generic [ref=e30]:
+          - generic [ref=e31]:
+            - generic [ref=e32]:
+              - generic [ref=e33]: MVP
+              - paragraph [ref=e34]: Vložte český text, vyberte hlas a nechte vyrenderovat finální WAV. Přehrávání začne až po dokončení renderu.
+            - generic [ref=e35]:
+              - generic [ref=e36]:
+                - generic [ref=e37]: Hlas
+                - generic [ref=e38]: speaker.wav
+              - combobox [ref=e39]:
+                - option "speaker.wav" [selected]
+                - option "speaker2.wav"
+                - option "speaker3.wav"
+                - option "speaker4.wav"
+                - option "speaker5.wav"
+                - option "speaker6.wav"
+              - button "+ Přidat WAV hlas" [ref=e40]:
+                - generic [ref=e41]: +
+                - text: Přidat WAV hlas
+          - link "Finální WAV" [ref=e293] [cursor=pointer]:
+            - /url: http://localhost:8000/api/render/e97540c0-9f5a-4b37-8334-961503839760/download
+            - generic [ref=e294]: Finální WAV
+            - img [ref=e295]
+      - generic [ref=e42]:
+        - button "Generovat a přehrát ▶" [ref=e312]:
+          - generic [ref=e313]: Generovat a přehrát
+          - generic [ref=e314]: ▶
+        - link "Stáhnout WAV ↓" [ref=e301] [cursor=pointer]:
+          - /url: http://localhost:8000/api/render/e97540c0-9f5a-4b37-8334-961503839760/download
+          - generic [ref=e302]: Stáhnout WAV
+          - generic [ref=e303]: ↓
+  - region "Notifications (F8)":
+    - list
+  - button "Open Next.js Dev Tools" [ref=e55] [cursor=pointer]:
+    - generic [ref=e316]:
+      - text: Compiling
+      - generic [ref=e317]:
+        - generic [ref=e318]: .
+        - generic [ref=e319]: .
+        - generic [ref=e320]: .
+  - alert [ref=e63]
