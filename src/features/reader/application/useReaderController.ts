@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useReducer } from "react";
 import { splitTextIntoPlaybackChunks } from "@/lib/chunking";
-import { estimatePlaybackTime } from "../domain/playback";
 import { cleanReaderText } from "../domain/textCleaning";
 import { copyToClipboard } from "../infrastructure/clipboard";
 import { initialReaderState, readerReducer } from "./readerReducer";
@@ -12,7 +11,6 @@ import { useLongFormPlaybackSession } from "./useLongFormPlaybackSession";
 export function useReaderController() {
   const [state, dispatch] = useReducer(readerReducer, initialReaderState);
   const editorChunks = useMemo(() => splitTextIntoPlaybackChunks(state.text), [state.text]);
-  const estimatedTime = useMemo(() => estimatePlaybackTime(state.text, state.speed), [state.speed, state.text]);
 
   useReaderSettings(state, dispatch);
   const { refreshVoices } = useReaderHealthAndVoices(state.selectedVoice, dispatch);
@@ -32,7 +30,6 @@ export function useReaderController() {
   return {
     state,
     chunks,
-    estimatedTime,
     currentChunkIndex: playbackSession.currentChunkIndex,
     downloadUrl: playbackSession.downloadUrl,
     textareaRef: playbackSession.textareaRef,

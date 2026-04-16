@@ -56,6 +56,26 @@ class FakeJobs:
                 {"index": 0, "text": "Ahoj", "start_ms": 0, "end_ms": 500},
                 {"index": 1, "text": "svete.", "start_ms": 500, "end_ms": 1000},
             ],
+            "blocks": [
+                {
+                    "index": 0,
+                    "text": "Ahoj",
+                    "status": "done",
+                    "error": None,
+                    "audio_path": "/tmp/block-0.wav",
+                    "start_ms": 0,
+                    "end_ms": 500,
+                },
+                {
+                    "index": 1,
+                    "text": "svete.",
+                    "status": "running",
+                    "error": None,
+                    "audio_path": None,
+                    "start_ms": None,
+                    "end_ms": None,
+                },
+            ],
             "final_audio_path": "/tmp/final.wav",
             "error": None,
             "created_at": 1.0,
@@ -65,20 +85,25 @@ class FakeJobs:
     def get_final_audio(self, job_id):
         return b"audio"
 
+    def get_block_audio(self, job_id, block_index):
+        if block_index == 0:
+            return b"block-audio"
+        raise ValueError("running")
+
 
 class HttpAppTests(unittest.TestCase):
     def setUp(self):
         self.jobs = FakeJobs()
         self.client = TestClient(create_app(runtime=FakeRuntime(), jobs=self.jobs))
 
-    def test_health_reports_omnivoice_render_mode(self):
+    def test_health_reports_omnivoice_progressive_mode(self):
         response = self.client.get("/api/health")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["model"], "k2-fsa/OmniVoice")
-        self.assertEqual(payload["mode"], "render-first")
+        self.assertEqual(payload["mode"], "progressive")
         self.assertEqual(payload["defaults"]["language"], "cs")
 
     def test_voices_endpoint_returns_available_voices(self):
@@ -110,6 +135,9 @@ class HttpAppTests(unittest.TestCase):
         self.assertTrue(payload["audio_ready"])
         self.assertTrue(payload["download_ready"])
         self.assertEqual(len(payload["timeline"]), 2)
+        self.assertEqual(payload["blocks"][0]["status"], "done")
+        self.assertTrue(payload["blocks"][0]["audio_ready"])
+        self.assertFalse(payload["blocks"][1]["audio_ready"])
 
     def test_render_audio_returns_final_wav(self):
         response = self.client.get("/api/render/job-1/audio")
@@ -124,3 +152,10 @@ class HttpAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"audio")
         self.assertIn("attachment", response.headers["content-disposition"])
+
+    def test_block_audio_returns_a_ready_wav_before_the_full_render_finishes(self):
+        response = self.client.get("/api/render/job-1/blocks/0/audio")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"block-audio")
+        self.assertEqual(response.headers["content-type"], "audio/wav")

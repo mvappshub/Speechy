@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  fetchRenderBlockAudioBlob,
   fetchRenderAudioBlob,
   fetchRenderStatus,
   getRenderDownloadUrl,
@@ -60,6 +61,7 @@ test("fetchRenderStatus returns render progress", async () => {
         audio_ready: true,
         download_ready: true,
         timeline: [],
+        blocks: [],
         error: null,
       }),
       {
@@ -82,6 +84,18 @@ test("fetchRenderAudioBlob loads the final wav", async () => {
   global.fetch = async () => new Response(new Blob(["audio"], { type: "audio/wav" }), { status: 200 });
 
   const blob = await fetchRenderAudioBlob("job-1");
+
+  assert.equal(blob.type, "audio/wav");
+
+  global.fetch = originalFetch;
+});
+
+test("fetchRenderBlockAudioBlob loads a block wav", async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => new Response(new Blob(["audio"], { type: "audio/wav" }), { status: 200 });
+
+  const blob = await fetchRenderBlockAudioBlob("job-1", 3);
 
   assert.equal(blob.type, "audio/wav");
 

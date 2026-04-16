@@ -1,4 +1,4 @@
-import type { TimelineBlock } from "./types";
+import type { RenderBlockStatus, TimelineBlock } from "./types";
 
 export function estimatePlaybackTime(text: string, speed: number) {
   const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
@@ -40,4 +40,11 @@ export function getTimelineBlockState(
 ): "past" | "active" | "future" {
   if (blockIndex === activeBlockIndex) return "active";
   return blockIndex < activeBlockIndex ? "past" : "future";
+}
+
+export function findNextPlayableBlockIndex(blocks: RenderBlockStatus[], targetIndex: number) {
+  for (let index = Math.max(targetIndex, 0); index < blocks.length; index += 1) {
+    if (blocks[index]?.audio_ready) return index;
+  }
+  return -1;
 }

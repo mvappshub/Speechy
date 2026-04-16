@@ -76,7 +76,7 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
         return {
             "status": "ok",
             "model": runtime.model_name,
-            "mode": "render-first",
+            "mode": "progressive",
             "gpu": runtime.gpu_info,
             "default_voice": runtime.voice_store.default_voice_name,
             "defaults": runtime.default_inference,
@@ -143,9 +143,32 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
                 "audio_ready": job["status"] == "done" and bool(job["final_audio_path"]),
                 "download_ready": job["status"] == "done" and bool(job["final_audio_path"]),
                 "timeline": job["timeline"],
+                "blocks": [
+                    {
+                        "index": block["index"],
+                        "text": block["text"],
+                        "status": block["status"],
+                        "audio_ready": bool(block["audio_path"]) and block["status"] == "done",
+                        "start_ms": block["start_ms"],
+                        "end_ms": block["end_ms"],
+                        "error": block["error"],
+                    }
+                    for block in job["blocks"]
+                ],
                 "error": job["error"],
             }
         )
+
+    @app.get("/api/render/{job_id}/blocks/{block_index}/audio")
+    async def get_render_block_audio(job_id: str, block_index: int):
+        jobs = get_jobs()
+        try:
+            audio = jobs.get_block_audio(job_id, block_index)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Block not found")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Block status is {exc}")
+        return StreamingResponse(io.BytesIO(audio), media_type="audio/wav")
 
     @app.get("/api/render/{job_id}/audio")
     async def get_render_audio(job_id: str):

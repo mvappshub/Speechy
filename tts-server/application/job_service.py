@@ -56,7 +56,15 @@ class JobService:
             "created_at": time(),
             "finished_at": None,
             "blocks": [
-                {"index": index, "text": block_text, "status": "queued", "error": None, "audio_path": None}
+                {
+                    "index": index,
+                    "text": block_text,
+                    "status": "queued",
+                    "error": None,
+                    "audio_path": None,
+                    "start_ms": None,
+                    "end_ms": None,
+                }
                 for index, block_text in enumerate(blocks)
             ],
         }
@@ -99,9 +107,22 @@ class JobService:
                     audio_path = self._write_block_audio(job_id, block["index"], waveform, sample_rate)
                     block["audio_path"] = str(audio_path)
                     block["status"] = "done"
+                    start_ms = job["timeline"][-1]["end_ms"] if job["timeline"] else 0
+                    duration_ms = int(round((len(waveform) / sample_rate) * 1000))
+                    block["start_ms"] = start_ms
+                    block["end_ms"] = start_ms + duration_ms
+                    job["timeline"].append(
+                        {
+                            "index": block["index"],
+                            "text": block["text"],
+                            "start_ms": block["start_ms"],
+                            "end_ms": block["end_ms"],
+                        }
+                    )
                     job["completed_blocks"] += 1
                     rendered_blocks.append(
                         {
+                            "index": block["index"],
                             "text": block["text"],
                             "waveform": waveform,
                             "sample_rate": sample_rate,
@@ -151,6 +172,18 @@ class JobService:
             "total_blocks": job["total_blocks"],
             "completed_blocks": job["completed_blocks"],
             "timeline": list(job["timeline"]),
+            "blocks": [
+                {
+                    "index": block["index"],
+                    "text": block["text"],
+                    "status": block["status"],
+                    "error": block["error"],
+                    "audio_path": block["audio_path"],
+                    "start_ms": block.get("start_ms"),
+                    "end_ms": block.get("end_ms"),
+                }
+                for block in job["blocks"]
+            ],
             "final_audio_path": job["final_audio_path"],
             "error": job["error"],
             "created_at": job["created_at"],
@@ -164,6 +197,18 @@ class JobService:
         if job["status"] != "done" or not job["final_audio_path"]:
             raise ValueError(job["status"])
         return self.runtime.read_final_wav(Path(job["final_audio_path"]))
+
+    def get_block_audio(self, job_id: str, block_index: int) -> bytes:
+        job = self.jobs.get(job_id)
+        if not job:
+            raise KeyError(job_id)
+        try:
+            block = job["blocks"][block_index]
+        except IndexError as exc:
+            raise KeyError(block_index) from exc
+        if block["status"] != "done" or not block["audio_path"]:
+            raise ValueError(block["status"])
+        return self.runtime.read_final_wav(Path(block["audio_path"]))
 
     async def wait_for_job(self, job_id: str):
         task = self._tasks.get(job_id)

@@ -3,13 +3,12 @@ import type { PlaybackChunk } from "@/lib/chunking";
 import { clampChunkIndex, findChunkIndexAtCursor } from "../domain/chunkSelection";
 import {
   buildReaderJobKey,
-  findActiveTimelineBlockIndex,
-  seekTimeForTimelineBlock,
+  findNextPlayableBlockIndex,
 } from "../domain/playback";
 import type { RenderStatus } from "../domain/types";
 import { createAudioPlayer } from "../infrastructure/audioPlayer";
 import {
-  fetchRenderAudioBlob,
+  fetchRenderBlockAudioBlob,
   fetchRenderStatus,
   getRenderDownloadUrl,
   startRender,
@@ -45,6 +44,9 @@ export function useLongFormPlaybackSession({ state, dispatch, chunks, refreshVoi
   const jobKeyRef = useRef<string | null>(null);
   const renderRef = useRef<RenderStatus | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  const desiredChunkRef = useRef(state.selectedChunk);
+  const activeChunkRef = useRef<number | null>(null);
+  const playTokenRef = useRef(0);
 
   const stopPolling = useCallback(() => {
     pollTokenRef.current += 1;
@@ -60,6 +62,9 @@ export function useLongFormPlaybackSession({ state, dispatch, chunks, refreshVoi
     stopPolling();
     audioPlayerRef.current.stop();
     revokeAudioUrl();
+    playTokenRef.current += 1;
+    desiredChunkRef.current = 0;
+    activeChunkRef.current = null;
     dispatch(readerActions.setProgress(null));
   }, [dispatch, revokeAudioUrl, stopPolling]);
 
@@ -71,42 +76,59 @@ export function useLongFormPlaybackSession({ state, dispatch, chunks, refreshVoi
     dispatch(readerActions.setPlaybackState("idle"));
   }, [clearRuntime, dispatch]);
 
-  const syncActiveBlock = useCallback(
-    (currentTime: number) => {
-      const timeline = renderRef.current?.timeline ?? [];
-      const activeIndex = findActiveTimelineBlockIndex(timeline, currentTime);
-      if (activeIndex >= 0) dispatch(readerActions.selectChunk(activeIndex));
-    },
-    [dispatch],
-  );
+  const playBlockAtIndex = useCallback(
+    async (blockIndex: number) => {
+      const jobId = jobIdRef.current;
+      if (!jobId) return false;
+      const blocks = renderRef.current?.blocks ?? [];
+      const block = blocks[blockIndex];
+      if (!block?.audio_ready) return false;
 
-  const loadAndPlayFinalAudio = useCallback(
-    async (job: RenderStatus) => {
-      if (!job.audio_ready) throw new Error("Finální audio ještě není připravené.");
-
+      const playToken = ++playTokenRef.current;
       revokeAudioUrl();
-      const blob = await fetchRenderAudioBlob(job.id);
+      const blob = await fetchRenderBlockAudioBlob(jobId, blockIndex);
+      if (playToken !== playTokenRef.current) return false;
+
       const url = URL.createObjectURL(blob);
       audioUrlRef.current = url;
+      activeChunkRef.current = blockIndex;
+      desiredChunkRef.current = blockIndex;
 
       await audioPlayerRef.current.load(url, state.volume, {
         onEnded: () => {
-          dispatch(readerActions.setPlaybackState("idle"));
+          const latestBlocks = renderRef.current?.blocks ?? [];
+          const nextIndex = findNextPlayableBlockIndex(latestBlocks, blockIndex + 1);
+          activeChunkRef.current = null;
+
+          if (nextIndex >= 0) {
+            desiredChunkRef.current = nextIndex;
+            void playBlockAtIndex(nextIndex);
+            return;
+          }
+
+          if (renderRef.current?.status === "done") {
+            dispatch(readerActions.setPlaybackState("idle"));
+            return;
+          }
+
+          desiredChunkRef.current = blockIndex + 1;
+          dispatch(readerActions.setPlaybackState("loading"));
         },
         onError: () => {
-          dispatch(readerActions.setError("Chyba při přehrávání finálního audia."));
+          dispatch(readerActions.setError("Chyba při přehrávání vygenerovaného bloku."));
           invalidateJob();
         },
-        onTimeUpdate: syncActiveBlock,
+        onTimeUpdate: () => {
+          dispatch(readerActions.selectChunk(blockIndex));
+        },
       });
 
-      const startTime = seekTimeForTimelineBlock(job.timeline, state.selectedChunk);
-      if (startTime > 0) audioPlayerRef.current.seek(startTime);
-      syncActiveBlock(startTime);
+      dispatch(readerActions.selectChunk(blockIndex));
       await audioPlayerRef.current.play();
       dispatch(readerActions.setPlaybackState("playing"));
+      return true;
     },
-    [dispatch, invalidateJob, revokeAudioUrl, state.selectedChunk, state.volume, syncActiveBlock],
+    [dispatch, invalidateJob, revokeAudioUrl, state.volume],
   );
 
   const pollUntilReady = useCallback(
@@ -127,15 +149,24 @@ export function useLongFormPlaybackSession({ state, dispatch, chunks, refreshVoi
           throw new Error(job.error || "Render selhal.");
         }
 
+        if (!audioPlayerRef.current.hasActiveAudio() && playbackStateRef.current !== "paused") {
+          const targetIndex = activeChunkRef.current ?? desiredChunkRef.current;
+          const nextPlayableIndex = findNextPlayableBlockIndex(job.blocks, targetIndex);
+          if (nextPlayableIndex >= 0) {
+            desiredChunkRef.current = nextPlayableIndex;
+            await playBlockAtIndex(nextPlayableIndex);
+          }
+        }
+
         if (job.status === "done") {
-          await loadAndPlayFinalAudio(job);
+          stopPolling();
           return;
         }
 
         await delay(POLL_INTERVAL_MS);
       }
     },
-    [dispatch, loadAndPlayFinalAudio],
+    [dispatch, playBlockAtIndex, stopPolling],
   );
 
   useEffect(() => {
@@ -155,10 +186,12 @@ export function useLongFormPlaybackSession({ state, dispatch, chunks, refreshVoi
     const nextChunk = clampChunkIndex(state.selectedChunk, chunks.length || 1);
     dispatch(readerActions.selectChunk(nextChunk));
     dispatch(readerActions.setError(null));
+    desiredChunkRef.current = nextChunk;
     dispatch(readerActions.setPlaybackState("loading"));
 
     const key = buildReaderJobKey({ text: state.text, voice: state.selectedVoice, speed: state.speed });
     invalidateJob();
+    desiredChunkRef.current = nextChunk;
     dispatch(readerActions.setPlaybackState("loading"));
     jobKeyRef.current = key;
 
@@ -206,29 +239,30 @@ export function useLongFormPlaybackSession({ state, dispatch, chunks, refreshVoi
   const onChunkClick = useCallback(
     async (chunk: PlaybackChunk) => {
       dispatch(readerActions.selectChunk(chunk.index));
-      const timeline = renderRef.current?.timeline ?? [];
-      if (!timeline.length || !audioPlayerRef.current.hasActiveAudio()) return;
+      desiredChunkRef.current = chunk.index;
+      if (state.playbackState === "idle") return;
 
-      const seekTime = seekTimeForTimelineBlock(timeline, chunk.index);
-      audioPlayerRef.current.seek(seekTime);
-      syncActiveBlock(seekTime);
-
-      if (playbackStateRef.current === "playing") {
-        await audioPlayerRef.current.resume();
+      const nextPlayableIndex = findNextPlayableBlockIndex(renderRef.current?.blocks ?? [], chunk.index);
+      if (nextPlayableIndex >= 0) {
+        await playBlockAtIndex(nextPlayableIndex);
+        return;
       }
+
+      dispatch(readerActions.setPlaybackState("loading"));
     },
-    [dispatch, syncActiveBlock],
+    [dispatch, playBlockAtIndex, state.playbackState],
   );
 
   return {
     textareaRef,
     currentChunkIndex: state.selectedChunk,
-    playbackChunks: renderRef.current?.timeline.map((block) => ({
-      index: block.index,
-      text: block.text,
-      start: block.index,
-      end: block.index + 1,
-    })),
+    playbackChunks:
+      renderRef.current?.blocks.map((block) => ({
+        index: block.index,
+        text: block.text,
+        start: block.index,
+        end: block.index + 1,
+      })) ?? chunks,
     downloadUrl: jobIdRef.current && renderRef.current?.download_ready ? getRenderDownloadUrl(jobIdRef.current) : null,
     onPlay,
     onPause,

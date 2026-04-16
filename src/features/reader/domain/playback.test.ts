@@ -4,10 +4,11 @@ import {
   buildReaderJobKey,
   estimatePlaybackTime,
   findActiveTimelineBlockIndex,
+  findNextPlayableBlockIndex,
   getTimelineBlockState,
   seekTimeForTimelineBlock,
 } from "./playback";
-import type { TimelineBlock } from "./types";
+import type { RenderBlockStatus, TimelineBlock } from "./types";
 
 const timeline: TimelineBlock[] = [
   { index: 0, text: "Ahoj", start_ms: 0, end_ms: 500 },
@@ -45,4 +46,15 @@ test("getTimelineBlockState derives past active and future states", () => {
   assert.equal(getTimelineBlockState(0, 1), "past");
   assert.equal(getTimelineBlockState(1, 1), "active");
   assert.equal(getTimelineBlockState(2, 1), "future");
+});
+
+test("findNextPlayableBlockIndex returns the first ready block at or after the target", () => {
+  const blocks: RenderBlockStatus[] = [
+    { index: 0, text: "Ahoj", status: "done", audio_ready: true, start_ms: 0, end_ms: 500 },
+    { index: 1, text: "svete", status: "queued", audio_ready: false, start_ms: null, end_ms: null },
+    { index: 2, text: "znovu", status: "done", audio_ready: true, start_ms: 500, end_ms: 900 },
+  ];
+
+  assert.equal(findNextPlayableBlockIndex(blocks, 1), 2);
+  assert.equal(findNextPlayableBlockIndex(blocks, 0), 0);
 });

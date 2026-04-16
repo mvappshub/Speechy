@@ -65,6 +65,14 @@ export async function fetchRenderStatus(jobId: string) {
   return (await response.json()) as RenderStatus;
 }
 
+export async function fetchRenderBlockAudioBlob(jobId: string, blockIndex: number) {
+  const response = await fetch(`${API}/api/render/${jobId}/blocks/${blockIndex}/audio`, {
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("Unable to fetch block audio.");
+  return await response.blob();
+}
+
 export async function fetchRenderAudioBlob(jobId: string) {
   const response = await fetch(`${API}/api/render/${jobId}/audio`);
   if (!response.ok) throw new Error("Unable to fetch final audio.");

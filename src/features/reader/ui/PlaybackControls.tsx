@@ -20,64 +20,62 @@ export function PlaybackControls({
   onStop: () => void;
 }) {
   return (
-    <div className="space-y-3 pt-12">
-      {playbackState === "idle" && (
+    <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4">
+      {playbackState === "idle" ? (
         <button
           onClick={onPlay}
           disabled={disabled}
-          className="flex w-full items-center justify-between border border-black bg-black px-6 py-5 text-white transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex items-center gap-2 border border-black bg-black px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-white transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <span className="text-xs font-medium uppercase tracking-[0.2em]">Přehrát</span>
           <span>▶</span>
+          <span>Přehrát</span>
         </button>
-      )}
-      {playbackState === "loading" && (
+      ) : null}
+      {playbackState === "loading" ? (
         <button
           disabled
-          className="flex w-full items-center justify-between border border-gray-300 bg-gray-100 px-6 py-5 text-gray-500"
+          className="inline-flex items-center gap-2 border border-gray-300 bg-gray-100 px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-gray-500"
         >
-          <span className="text-xs font-medium uppercase tracking-[0.2em]">
-            {progress ? `Generuji audio ${progress.done}/${progress.total}` : "Generuji audio"}
-          </span>
           <span>…</span>
+          <span>{progress ? `Generuji ${progress.done}/${progress.total}` : "Generuji"}</span>
         </button>
-      )}
-      {playbackState === "playing" && (
+      ) : null}
+      {playbackState === "playing" ? (
         <button
           onClick={onPause}
-          className="flex w-full items-center justify-between border border-black bg-white px-6 py-5 text-black"
+          className="inline-flex items-center gap-2 border border-black bg-white px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-black"
         >
-          <span className="text-xs font-medium uppercase tracking-[0.2em]">Pozastavit</span>
           <span>❚❚</span>
+          <span>Pozastavit</span>
         </button>
-      )}
-      {playbackState === "paused" && (
+      ) : null}
+      {playbackState === "paused" ? (
         <button
           onClick={onResume}
-          className="flex w-full items-center justify-between border border-black bg-black px-6 py-5 text-white"
+          className="inline-flex items-center gap-2 border border-black bg-black px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-white"
         >
-          <span className="text-xs font-medium uppercase tracking-[0.2em]">Pokračovat</span>
           <span>▶</span>
+          <span>Pokračovat</span>
         </button>
-      )}
-      {playbackState !== "idle" && (
+      ) : null}
+      {playbackState !== "idle" ? (
         <button
           onClick={onStop}
-          className="flex w-full items-center justify-between border border-gray-300 bg-transparent px-6 py-4 text-gray-500"
+          className="inline-flex items-center gap-2 border border-gray-300 bg-transparent px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-gray-500"
         >
-          <span className="text-[10px] font-medium uppercase tracking-[0.2em]">Zastavit</span>
           <span>■</span>
+          <span>Zastavit</span>
         </button>
-      )}
-      {downloadUrl && playbackState !== "loading" && (
+      ) : null}
+      {downloadUrl && playbackState !== "loading" ? (
         <a
           href={downloadUrl}
-          className="flex w-full items-center justify-between border border-gray-300 bg-white px-6 py-4 text-black"
+          className="inline-flex items-center gap-2 border border-gray-300 bg-white px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-black"
         >
-          <span className="text-[10px] font-medium uppercase tracking-[0.2em]">Stáhnout WAV</span>
           <span>↓</span>
+          <span>Stáhnout WAV</span>
         </a>
-      )}
+      ) : null}
     </div>
   );
 }
