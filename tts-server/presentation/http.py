@@ -35,6 +35,7 @@ class RenderRequest(BaseModel):
 
 class ProjectSyncRequest(RenderRequest):
     project_id: str | None = None
+    blocks: list[dict[str, str]] | None = None
     block_voices: list[str] | None = None
 
 
@@ -179,6 +180,7 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
                         "speed": req.speed,
                     }
                 ),
+                blocks=req.blocks,
                 block_voices=req.block_voices,
             )
         except ValueError as exc:

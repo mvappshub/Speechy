@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import net from "node:net";
 import path from "node:path";
 import readline from "node:readline";
 import process from "node:process";
@@ -16,6 +17,26 @@ const urls = {
 
 const children = [];
 let shuttingDown = false;
+
+function checkPortAvailable(port, host = "0.0.0.0") {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+
+    server.once("error", (error) => {
+      if (error && typeof error === "object" && "code" in error && error.code === "EADDRINUSE") {
+        resolve(false);
+        return;
+      }
+      resolve(false);
+    });
+
+    server.once("listening", () => {
+      server.close(() => resolve(true));
+    });
+
+    server.listen(port, host);
+  });
+}
 
 function pipeOutput(label, stream) {
   if (!stream) return;
@@ -95,3 +116,15 @@ startProcess({
 
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
+
+const [backendPortAvailable, frontendPortAvailable] = await Promise.all([
+  checkPortAvailable(8000),
+  checkPortAvailable(3000),
+]);
+
+if (!backendPortAvailable || !frontendPortAvailable) {
+  console.error("Cannot start local development stack because required ports are already in use.");
+  if (!backendPortAvailable) console.error("Port 8000 is already in use. Stop the existing backend before retrying.");
+  if (!frontendPortAvailable) console.error("Port 3000 is already in use. Stop the existing frontend before retrying.");
+  process.exit(1);
+}

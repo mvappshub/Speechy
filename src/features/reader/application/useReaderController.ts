@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
-import { splitTextIntoPlaybackChunks } from "@/lib/chunking";
+import { splitTextIntoParagraphChunks, splitTextIntoPlaybackChunks } from "@/lib/chunking";
 import type { ProjectSnapshot } from "../domain/types";
 import { cleanReaderText } from "../domain/textCleaning";
 import { copyToClipboard } from "../infrastructure/clipboard";
@@ -13,6 +13,7 @@ import { useLongFormPlaybackSession } from "./useLongFormPlaybackSession";
 export function useReaderController() {
   const [state, dispatch] = useReducer(readerReducer, initialReaderState);
   const editorChunks = useMemo(() => splitTextIntoPlaybackChunks(state.text), [state.text]);
+  const paragraphChunks = useMemo(() => splitTextIntoParagraphChunks(state.text), [state.text]);
   const hydratedProjectIdRef = useRef<string | null>(null);
 
   useReaderSettings(state, dispatch);
@@ -28,29 +29,31 @@ export function useReaderController() {
   const playbackSession = useLongFormPlaybackSession({
     state,
     dispatch,
-    chunks: editorChunks,
+    chunks: paragraphChunks,
     refreshVoices,
     refreshProjects,
   });
-  const chunks = playbackSession.playbackChunks ?? editorChunks;
+  const chunks = state.isBlockMode ? playbackSession.playbackChunks ?? paragraphChunks : editorChunks;
 
   useEffect(() => {
-    if (!editorChunks.length && state.selectedChunk !== 0) {
+    const activeChunks = state.isBlockMode ? chunks : editorChunks;
+    if (!activeChunks.length && state.selectedChunk !== 0) {
       dispatch(readerActions.selectChunk(0));
       return;
     }
-    if (editorChunks.length && state.selectedChunk > editorChunks.length - 1) {
-      dispatch(readerActions.selectChunk(editorChunks.length - 1));
+    if (activeChunks.length && state.selectedChunk > activeChunks.length - 1) {
+      dispatch(readerActions.selectChunk(activeChunks.length - 1));
     }
-  }, [editorChunks, state.selectedChunk]);
+  }, [chunks, editorChunks, state.isBlockMode, state.selectedChunk]);
 
   useEffect(() => {
-    const nextBlockVoices = editorChunks.map((_, index) => state.blockVoices[index] ?? state.selectedVoice);
+    const baseChunks = state.isBlockMode ? paragraphChunks : editorChunks;
+    const nextBlockVoices = baseChunks.map((_, index) => state.blockVoices[index] ?? state.selectedVoice);
     const changed =
       nextBlockVoices.length !== state.blockVoices.length ||
       nextBlockVoices.some((voice, index) => voice !== state.blockVoices[index]);
     if (changed) dispatch(readerActions.setBlockVoices(nextBlockVoices));
-  }, [dispatch, editorChunks, state.blockVoices, state.selectedVoice]);
+  }, [dispatch, editorChunks, paragraphChunks, state.blockVoices, state.isBlockMode, state.selectedVoice]);
 
   useEffect(() => {
     void refreshProjects();
@@ -67,6 +70,7 @@ export function useReaderController() {
         if (cancelled) return;
         hydratedProjectIdRef.current = state.currentProjectId;
         await playbackSession.onProjectOpen(project);
+        dispatch(readerActions.setBlockMode(true));
       } catch {}
     })();
 
@@ -79,6 +83,7 @@ export function useReaderController() {
     const project = typeof projectOrId === "string" ? await fetchProject(projectOrId) : projectOrId;
     hydratedProjectIdRef.current = project.id;
     await playbackSession.onProjectOpen(project);
+    dispatch(readerActions.setBlockMode(true));
     dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
     await refreshProjects();
   }
@@ -89,7 +94,10 @@ export function useReaderController() {
     currentChunkIndex: playbackSession.currentChunkIndex,
     downloadUrl: playbackSession.downloadUrl,
     textareaRef: playbackSession.textareaRef,
-    onTextChange: (value: string) => dispatch(readerActions.setText(value)),
+    onTextChange: (value: string) => {
+      dispatch(readerActions.setText(value));
+      dispatch(readerActions.setBlockMode(false));
+    },
     onSpeedChange: (value: number) => dispatch(readerActions.setSpeed(value)),
     onVolumeChange: (value: number) => dispatch(readerActions.setVolume(value)),
     onTextScaleChange: (value: number) => dispatch(readerActions.setTextScale(value)),
@@ -105,6 +113,10 @@ export function useReaderController() {
       );
     },
     onBlockVoiceChange: (index: number, voice: string) => dispatch(readerActions.setBlockVoice(index, voice)),
+    onSplitBlocks: () => {
+      dispatch(readerActions.setBlockMode(true));
+      dispatch(readerActions.selectChunk(0));
+    },
     onCopy: () => copyToClipboard(state.text),
     onPlay: playbackSession.onPlay,
     onPause: playbackSession.onPause,
@@ -115,6 +127,7 @@ export function useReaderController() {
     onClear: () => {
       hydratedProjectIdRef.current = null;
       dispatch(readerActions.setCurrentProject(null));
+      dispatch(readerActions.setBlockMode(false));
       dispatch(readerActions.setText(""));
       playbackSession.onStop();
     },

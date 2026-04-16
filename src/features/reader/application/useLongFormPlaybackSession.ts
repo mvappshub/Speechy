@@ -205,6 +205,10 @@ export function useLongFormPlaybackSession({
         projectId: state.currentProjectId,
         text: state.text,
         voice: state.selectedVoice,
+        blocks: chunks.map((chunk, index) => ({
+          text: chunk.text,
+          voice: state.blockVoices[index] ?? state.selectedVoice,
+        })),
         blockVoices: state.blockVoices,
         speed: state.speed,
         language: "cs",

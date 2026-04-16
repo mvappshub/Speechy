@@ -5,6 +5,37 @@ export type PlaybackChunk = {
   end: number
 }
 
+export function splitTextIntoParagraphChunks(text: string): PlaybackChunk[] {
+  const normalized = text.replace(/\r\n/g, "\n")
+  if (!normalized.trim()) return []
+
+  const chunks: PlaybackChunk[] = []
+  const paragraphs = normalized.split(/\n\s*\n/g)
+  let searchOffset = 0
+
+  paragraphs.forEach((paragraph) => {
+    const chunkText = paragraph.trim()
+    if (!chunkText) {
+      searchOffset += paragraph.length + 2
+      return
+    }
+
+    const paragraphStart = normalized.indexOf(paragraph, searchOffset)
+    const start = paragraphStart + paragraph.search(/\S|$/)
+    const end = paragraphStart + paragraph.length
+    searchOffset = end
+
+    chunks.push({
+      index: chunks.length,
+      text: chunkText,
+      start,
+      end,
+    })
+  })
+
+  return chunks
+}
+
 const SENTENCE_RE = /[^.!?…\n]+(?:[.!?…]+|$)/g
 
 function normalizeWhitespace(value: string) {

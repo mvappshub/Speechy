@@ -20,12 +20,13 @@ export function PlaybackControls({
   onStop: () => void;
 }) {
   return (
-    <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4">
+    <div className="mt-6 flex flex-wrap items-center gap-4 pt-2 text-[10px] font-medium uppercase tracking-[0.2em] text-gray-400">
       {playbackState === "idle" ? (
         <button
           onClick={onPlay}
           disabled={disabled}
-          className="inline-flex items-center gap-2 border border-black bg-black px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-white transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex items-center gap-1 text-inherit transition-colors hover:text-black disabled:cursor-not-allowed disabled:opacity-30"
+          title={disabled ? "Nejdřív rozděl text do bloků a zvol hlasy." : undefined}
         >
           <span>▶</span>
           <span>Přehrát</span>
@@ -34,7 +35,7 @@ export function PlaybackControls({
       {playbackState === "loading" ? (
         <button
           disabled
-          className="inline-flex items-center gap-2 border border-gray-300 bg-gray-100 px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-gray-500"
+          className="inline-flex items-center gap-1 text-inherit opacity-70"
         >
           <span>…</span>
           <span>{progress ? `Generuji ${progress.done}/${progress.total}` : "Generuji"}</span>
@@ -43,7 +44,7 @@ export function PlaybackControls({
       {playbackState === "playing" ? (
         <button
           onClick={onPause}
-          className="inline-flex items-center gap-2 border border-black bg-white px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-black"
+          className="inline-flex items-center gap-1 text-inherit transition-colors hover:text-black"
         >
           <span>❚❚</span>
           <span>Pozastavit</span>
@@ -52,7 +53,7 @@ export function PlaybackControls({
       {playbackState === "paused" ? (
         <button
           onClick={onResume}
-          className="inline-flex items-center gap-2 border border-black bg-black px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-white"
+          className="inline-flex items-center gap-1 text-inherit transition-colors hover:text-black"
         >
           <span>▶</span>
           <span>Pokračovat</span>
@@ -61,7 +62,7 @@ export function PlaybackControls({
       {playbackState !== "idle" ? (
         <button
           onClick={onStop}
-          className="inline-flex items-center gap-2 border border-gray-300 bg-transparent px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-gray-500"
+          className="inline-flex items-center gap-1 text-inherit transition-colors hover:text-red-500"
         >
           <span>■</span>
           <span>Zastavit</span>
@@ -70,7 +71,7 @@ export function PlaybackControls({
       {downloadUrl && playbackState !== "loading" ? (
         <a
           href={downloadUrl}
-          className="inline-flex items-center gap-2 border border-gray-300 bg-white px-4 py-2 text-xs font-medium uppercase tracking-[0.2em] text-black"
+          className="inline-flex items-center gap-1 text-inherit transition-colors hover:text-black"
         >
           <span>↓</span>
           <span>Stáhnout WAV</span>

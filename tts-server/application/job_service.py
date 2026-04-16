@@ -302,10 +302,14 @@ class JobService:
         text: str,
         options: Any,
         *,
+        blocks: list[dict[str, str]] | None = None,
         block_voices: list[str] | None = None,
     ):
-        blocks = split_text_into_chunks(text, max_chars=self.runtime.long_form_chunk_chars)
-        if not blocks:
+        resolved_blocks = blocks or [
+            {"text": block_text}
+            for block_text in split_text_into_chunks(text, max_chars=self.runtime.long_form_chunk_chars)
+        ]
+        if not resolved_blocks:
             raise ValueError("Text is empty")
         payload = options.model_dump()
         assigned_voices = block_voices or []
@@ -317,10 +321,10 @@ class JobService:
             selected_voice=payload["voice"],
             blocks=[
                 {
-                    "text": block_text,
-                    "voice": assigned_voices[index] if index < len(assigned_voices) else payload["voice"],
+                    "text": block["text"],
+                    "voice": block.get("voice") or (assigned_voices[index] if index < len(assigned_voices) else payload["voice"]),
                 }
-                for index, block_text in enumerate(blocks)
+                for index, block in enumerate(resolved_blocks)
             ],
         )
 

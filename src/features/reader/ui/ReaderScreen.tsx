@@ -1,9 +1,8 @@
 "use client";
 
 import { useRef } from "react";
-import { Copy, LoaderCircle, Sparkles, Trash2 } from "lucide-react";
+import { Copy, LoaderCircle, ScissorsLineDashed, Sparkles, Trash2 } from "lucide-react";
 import { useReaderController } from "../application/useReaderController";
-import { BlockVoiceAssignments } from "./BlockVoiceAssignments";
 import { ErrorBanner } from "./ErrorBanner";
 import { PlaybackControls } from "./PlaybackControls";
 import { PlaybackView } from "./PlaybackView";
@@ -14,39 +13,47 @@ import { VoiceSelector } from "./VoiceSelector";
 export function ReaderScreen() {
   const controller = useReaderController();
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const isPlaybackVisible = controller.state.playbackState !== "idle";
+  const isPlaybackVisible = controller.state.isBlockMode || controller.state.playbackState !== "idle";
 
   return (
     <div className="min-h-screen w-full bg-white font-sans">
+      <ProjectSelector
+        currentProjectId={controller.state.currentProjectId}
+        projects={controller.state.projects}
+        onProjectOpen={(projectId) => void controller.onProjectOpen(projectId)}
+      />
       <div className="mx-auto flex min-h-screen w-full max-w-[1200px] flex-col p-6 md:p-12 lg:p-16">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4 text-[10px] font-medium uppercase tracking-[0.2em] text-gray-400">
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={controller.onCleanText}
-              className="flex items-center gap-1 transition-colors hover:text-black"
+              className="flex items-center gap-1 text-inherit transition-colors hover:text-black"
             >
               <Sparkles className="h-3 w-3" />
               Vyčistit text
             </button>
             <button
+              onClick={controller.onSplitBlocks}
+              disabled={!controller.state.text.trim()}
+              className="flex items-center gap-1 text-inherit transition-colors hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ScissorsLineDashed className="h-3 w-3" />
+              Rozdělit do bloků
+            </button>
+            <button
               onClick={() => void controller.onCopy()}
-              className="flex items-center gap-1 transition-colors hover:text-black"
+              className="flex items-center gap-1 text-inherit transition-colors hover:text-black"
             >
               <Copy className="h-3 w-3" />
               Kopírovat
             </button>
             <button
               onClick={controller.onClear}
-              className="flex items-center gap-1 transition-colors hover:text-red-500"
+              className="flex items-center gap-1 text-inherit transition-colors hover:text-red-500"
             >
               <Trash2 className="h-3 w-3" />
               Smazat vše
             </button>
-            <ProjectSelector
-              currentProjectId={controller.state.currentProjectId}
-              projects={controller.state.projects}
-              onProjectOpen={(projectId) => void controller.onProjectOpen(projectId)}
-            />
             <VoiceSelector
               selectedVoice={controller.state.selectedVoice}
               voices={controller.state.voices}
@@ -58,6 +65,9 @@ export function ReaderScreen() {
           </div>
 
           <div className="flex min-h-5 items-center gap-2 text-gray-500">
+            {controller.state.isBlockMode && controller.state.playbackState === "idle" ? (
+              <span>Bloky připravené. Klikni na hlas vpravo a pak na Přehrát.</span>
+            ) : null}
             {controller.state.progress &&
             controller.state.playbackState !== "idle" &&
             controller.state.progress.status !== "done" ? (
@@ -79,7 +89,11 @@ export function ReaderScreen() {
               chunks={controller.chunks}
               currentChunkIndex={controller.currentChunkIndex}
               textScale={controller.state.textScale}
+              voices={controller.state.voices}
+              blockVoices={controller.state.blockVoices}
+              canAssignVoice={controller.state.isBlockMode && controller.state.playbackState !== "loading"}
               onChunkClick={controller.onChunkClick}
+              onBlockVoiceChange={controller.onBlockVoiceChange}
             />
           ) : (
             <TextEditor
@@ -93,18 +107,15 @@ export function ReaderScreen() {
           )}
         </div>
 
-        <BlockVoiceAssignments
-          chunks={controller.chunks}
-          voices={controller.state.voices}
-          blockVoices={controller.state.blockVoices}
-          disabled={controller.state.playbackState !== "idle"}
-          onBlockVoiceChange={controller.onBlockVoiceChange}
-        />
-
         <PlaybackControls
           playbackState={controller.state.playbackState}
           progress={controller.state.progress}
-          disabled={controller.state.serverStatus !== "online" || !controller.state.text.trim()}
+          disabled={
+            controller.state.serverStatus !== "online" ||
+            !controller.state.text.trim() ||
+            !controller.state.isBlockMode ||
+            !controller.chunks.length
+          }
           downloadUrl={controller.downloadUrl}
           onPlay={() => void controller.onPlay()}
           onPause={controller.onPause}
