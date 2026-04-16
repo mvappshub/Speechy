@@ -7,6 +7,8 @@ export type ReaderAction =
   | { type: "volume/set"; payload: number }
   | { type: "textScale/set"; payload: number }
   | { type: "voice/set"; payload: string }
+  | { type: "blockVoices/set"; payload: string[] }
+  | { type: "blockVoice/set"; payload: { index: number; voice: string } }
   | { type: "project/current"; payload: string | null }
   | { type: "projects/set"; payload: ProjectSummary[] }
   | { type: "voices/set"; payload: Voice[] }
@@ -27,6 +29,8 @@ export const readerActions = {
   setVolume: (payload: number) => ({ type: "volume/set", payload }) as const,
   setTextScale: (payload: number) => ({ type: "textScale/set", payload }) as const,
   setVoice: (payload: string) => ({ type: "voice/set", payload }) as const,
+  setBlockVoices: (payload: string[]) => ({ type: "blockVoices/set", payload }) as const,
+  setBlockVoice: (index: number, voice: string) => ({ type: "blockVoice/set", payload: { index, voice } }) as const,
   setCurrentProject: (payload: string | null) => ({ type: "project/current", payload }) as const,
   setProjects: (payload: ProjectSummary[]) => ({ type: "projects/set", payload }) as const,
   setVoices: (payload: Voice[]) => ({ type: "voices/set", payload }) as const,

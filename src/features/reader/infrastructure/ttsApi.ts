@@ -39,6 +39,7 @@ export async function syncProject(input: {
   projectId?: string | null;
   text: string;
   voice: string;
+  blockVoices?: string[];
   language?: string;
   speed?: number;
 }) {
@@ -49,6 +50,7 @@ export async function syncProject(input: {
       project_id: input.projectId ?? null,
       text: input.text,
       voice: input.voice,
+      block_voices: input.blockVoices ?? [],
       language: input.language ?? "cs",
       speed: input.speed ?? 1,
     }),

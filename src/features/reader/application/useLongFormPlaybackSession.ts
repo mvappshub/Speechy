@@ -153,6 +153,11 @@ export function useLongFormPlaybackSession({
         const project = await fetchProject(projectId);
         applyProject(project);
 
+        if (project.status === "error") {
+          const firstError = project.blocks.find((block) => block.error)?.error;
+          throw new Error(firstError || "Generování projektu selhalo.");
+        }
+
         if (!audioPlayerRef.current.hasActiveAudio() && playbackStateRef.current !== "paused") {
           const targetIndex = activeChunkRef.current ?? desiredChunkRef.current;
           const nextPlayableIndex = findNextPlayableBlockIndex(project.blocks, targetIndex);
@@ -200,6 +205,7 @@ export function useLongFormPlaybackSession({
         projectId: state.currentProjectId,
         text: state.text,
         voice: state.selectedVoice,
+        blockVoices: state.blockVoices,
         speed: state.speed,
         language: "cs",
       });
@@ -230,6 +236,7 @@ export function useLongFormPlaybackSession({
     playBlockAtIndex,
     pollProjectUntilReady,
     refreshProjects,
+    state.blockVoices,
     state.currentProjectId,
     state.selectedChunk,
     state.selectedVoice,

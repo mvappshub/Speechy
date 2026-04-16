@@ -35,6 +35,7 @@ class RenderRequest(BaseModel):
 
 class ProjectSyncRequest(RenderRequest):
     project_id: str | None = None
+    block_voices: list[str] | None = None
 
 
 def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = None):
@@ -178,6 +179,7 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
                         "speed": req.speed,
                     }
                 ),
+                block_voices=req.block_voices,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))

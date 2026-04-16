@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { Copy, LoaderCircle, Sparkles, Trash2 } from "lucide-react";
 import { useReaderController } from "../application/useReaderController";
+import { BlockVoiceAssignments } from "./BlockVoiceAssignments";
 import { ErrorBanner } from "./ErrorBanner";
 import { PlaybackControls } from "./PlaybackControls";
 import { PlaybackView } from "./PlaybackView";
@@ -91,6 +92,14 @@ export function ReaderScreen() {
             />
           )}
         </div>
+
+        <BlockVoiceAssignments
+          chunks={controller.chunks}
+          voices={controller.state.voices}
+          blockVoices={controller.state.blockVoices}
+          disabled={controller.state.playbackState !== "idle"}
+          onBlockVoiceChange={controller.onBlockVoiceChange}
+        />
 
         <PlaybackControls
           playbackState={controller.state.playbackState}

@@ -12,6 +12,7 @@ export type ReaderState = {
   volume: number;
   textScale: number;
   selectedVoice: string;
+  blockVoices: string[];
   currentProjectId: string | null;
   projects: ProjectSummary[];
   voices: Voice[];
@@ -30,6 +31,7 @@ export const initialReaderState: ReaderState = {
   volume: 1,
   textScale: 0.35,
   selectedVoice: "speaker.wav",
+  blockVoices: [],
   currentProjectId: null,
   projects: [],
   voices: [],
@@ -52,6 +54,15 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
       return { ...state, textScale: action.payload };
     case "voice/set":
       return { ...state, selectedVoice: action.payload };
+    case "blockVoices/set":
+      return { ...state, blockVoices: action.payload };
+    case "blockVoice/set":
+      return {
+        ...state,
+        blockVoices: state.blockVoices.map((voice, index) =>
+          index === action.payload.index ? action.payload.voice : voice,
+        ),
+      };
     case "project/current":
       return { ...state, currentProjectId: action.payload };
     case "projects/set":

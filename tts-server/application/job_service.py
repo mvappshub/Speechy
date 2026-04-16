@@ -296,18 +296,32 @@ class JobService:
             options=options,
         )
 
-    def sync_project(self, project_id: str | None, text: str, options: Any):
+    def sync_project(
+        self,
+        project_id: str | None,
+        text: str,
+        options: Any,
+        *,
+        block_voices: list[str] | None = None,
+    ):
         blocks = split_text_into_chunks(text, max_chars=self.runtime.long_form_chunk_chars)
         if not blocks:
             raise ValueError("Text is empty")
         payload = options.model_dump()
+        assigned_voices = block_voices or []
         return self.project_store.sync_project(
             project_id,
             text=text,
             language=payload.get("language", "cs"),
             settings={"speed": payload.get("speed", 1.0)},
             selected_voice=payload["voice"],
-            blocks=[{"text": block_text, "voice": payload["voice"]} for block_text in blocks],
+            blocks=[
+                {
+                    "text": block_text,
+                    "voice": assigned_voices[index] if index < len(assigned_voices) else payload["voice"],
+                }
+                for index, block_text in enumerate(blocks)
+            ],
         )
 
     def list_projects(self):
@@ -316,7 +330,11 @@ class JobService:
     def get_project(self, project_id: str):
         project = self.project_store.get_project(project_id)
         active_task = self._project_tasks.get(project_id)
-        project["status"] = "running" if active_task and not active_task.done() else "ready"
+        has_error = any(block["status"] == "error" for block in project["blocks"])
+        if has_error:
+            project["status"] = "error"
+        else:
+            project["status"] = "running" if active_task and not active_task.done() else "ready"
         project["progress"] = {
             "done": project["completed_blocks"],
             "total": project["total_blocks"],

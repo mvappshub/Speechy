@@ -15,8 +15,10 @@ class FakeRuntime:
 
     def __init__(self):
         self.block_lengths: list[int] = []
+        self.prompt_voices: list[str] = []
 
     def create_voice_clone_prompt(self, voice_name: str, preprocess_prompt: bool = True):
+        self.prompt_voices.append(voice_name)
         return {"voice": voice_name, "preprocess_prompt": preprocess_prompt}
 
     def render_single_block(
@@ -205,3 +207,34 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             rerender_count = len(service.runtime.block_lengths) - rendered_before_edit
             queued_count = sum(1 for status in statuses if status == "queued")
             self.assertEqual(rerender_count, queued_count)
+
+    async def test_changing_one_block_voice_only_regenerates_that_block(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = self.make_service(temp_dir, max_active_jobs=2, ttl_seconds=60)
+
+            project = service.sync_project(
+                None,
+                "Prvni delsi veta. Druha delsi veta. Treti delsi veta.",
+                self.make_options(),
+                block_voices=["speaker.wav", "speaker.wav", "speaker.wav"],
+            )
+            initial_job_id = service.render_project(project["id"])
+            self.assertIsNotNone(initial_job_id)
+            await service.wait_for_project(project["id"])
+
+            renders_before_voice_change = len(service.runtime.block_lengths)
+            updated = service.sync_project(
+                project["id"],
+                "Prvni delsi veta. Druha delsi veta. Treti delsi veta.",
+                self.make_options(),
+                block_voices=["speaker.wav", "speaker2.wav", "speaker.wav"],
+            )
+
+            statuses = [block["status"] for block in updated["blocks"]]
+            self.assertEqual(statuses.count("queued"), 1)
+
+            second_job_id = service.render_project(updated["id"])
+            self.assertIsNotNone(second_job_id)
+            await service.wait_for_project(updated["id"])
+
+            self.assertEqual(len(service.runtime.block_lengths) - renders_before_voice_change, 1)

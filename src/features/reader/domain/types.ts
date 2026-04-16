@@ -64,7 +64,7 @@ export type RenderStatus = {
   error?: string | null;
 };
 
-export type ProjectStatus = "ready" | "running";
+export type ProjectStatus = "ready" | "running" | "error";
 
 export type ProjectSnapshot = {
   id: string;

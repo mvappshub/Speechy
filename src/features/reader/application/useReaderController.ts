@@ -45,6 +45,14 @@ export function useReaderController() {
   }, [editorChunks, state.selectedChunk]);
 
   useEffect(() => {
+    const nextBlockVoices = editorChunks.map((_, index) => state.blockVoices[index] ?? state.selectedVoice);
+    const changed =
+      nextBlockVoices.length !== state.blockVoices.length ||
+      nextBlockVoices.some((voice, index) => voice !== state.blockVoices[index]);
+    if (changed) dispatch(readerActions.setBlockVoices(nextBlockVoices));
+  }, [dispatch, editorChunks, state.blockVoices, state.selectedVoice]);
+
+  useEffect(() => {
     void refreshProjects();
   }, [refreshProjects]);
 
@@ -71,6 +79,7 @@ export function useReaderController() {
     const project = typeof projectOrId === "string" ? await fetchProject(projectOrId) : projectOrId;
     hydratedProjectIdRef.current = project.id;
     await playbackSession.onProjectOpen(project);
+    dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
     await refreshProjects();
   }
 
@@ -84,7 +93,18 @@ export function useReaderController() {
     onSpeedChange: (value: number) => dispatch(readerActions.setSpeed(value)),
     onVolumeChange: (value: number) => dispatch(readerActions.setVolume(value)),
     onTextScaleChange: (value: number) => dispatch(readerActions.setTextScale(value)),
-    onVoiceChange: (value: string) => dispatch(readerActions.setVoice(value)),
+    onVoiceChange: (value: string) => {
+      const previousVoice = state.selectedVoice;
+      dispatch(readerActions.setVoice(value));
+      dispatch(
+        readerActions.setBlockVoices(
+          state.blockVoices.length
+            ? state.blockVoices.map((voice) => (voice === previousVoice ? value : voice))
+            : editorChunks.map(() => value),
+        ),
+      );
+    },
+    onBlockVoiceChange: (index: number, voice: string) => dispatch(readerActions.setBlockVoice(index, voice)),
     onCopy: () => copyToClipboard(state.text),
     onPlay: playbackSession.onPlay,
     onPause: playbackSession.onPause,
