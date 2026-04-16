@@ -1,6 +1,6 @@
 # Předčítač Českého Textu
 
-Next.js frontend pro minimalistické čtení českého textu a lokální FastAPI backend pro OmniVoice voice-clone render.
+Next.js frontend pro minimalistické čtení českého textu a lokální FastAPI backend pro progresivní OmniVoice voice-clone render.
 
 ## Požadavky
 
@@ -17,7 +17,7 @@ npm install
 
 Backend používá vlastní Python prostředí. Pokud ještě není připravené, nainstaluj závislosti podle lokálního setupu pro OmniVoice/FastAPI.
 
-Pro OmniVoice render-first běh je v praxi potřeba alespoň:
+Pro OmniVoice běh je v praxi potřeba alespoň:
 
 ```bash
 python -m pip install "transformers==5.3.0" accelerate
@@ -33,7 +33,7 @@ OmniVoice prompt creation teď používá tento pořadník:
 2. zkusí načíst transcript sidecar se stejným stemem
 3. pokud transcript existuje, použije `ref_audio + ref_text` a vůbec nespouští ASR
 4. pokud transcript neexistuje, teprve potom použije ASR fallback
-5. pokud ASR fallback selže, render skončí s jasnou backend chybou místo visení
+5. pokud ASR fallback selže, projekt/render skončí s jasnou backend chybou místo visení
 
 Příklady sidecarů:
 
@@ -103,11 +103,11 @@ npm run start
 
 ## Co umí aplikace
 
-- vložit nebo upravit český text
-- vybrat hlas a nahrát vlastní `.wav`
-- vyrenderovat celý finální WAV před přehráním
-- přehrávat finální stopu s blokovým zvýrazněním textu
-- pauznout, obnovit, zastavit a stáhnout výsledný WAV
+- vložit nebo upravit český text a uložit ho jako znovuotevíratelný projekt
+- vybrat výchozí hlas, nahrát vlastní `.wav` a přiřadit různé hlasy jednotlivým blokům textu
+- generovat bloky progresivně na pozadí a začít přehrávat hned po prvním připraveném bloku
+- znovu použít uložené blokové audio bez nového renderu při stejném textu, hlasu a nastavení
+- přehrávat, pauznout, obnovit, zastavit a stáhnout výsledný WAV s blokovým zvýrazněním textu
 
 ## Poznámky
 
