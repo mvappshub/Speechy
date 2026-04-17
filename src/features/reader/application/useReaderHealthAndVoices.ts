@@ -9,28 +9,56 @@ export function useReaderHealthAndVoices(selectedVoice: string, dispatch: Dispat
   const refreshHealth = useCallback(async () => {
     try {
       const health = await fetchHealth();
-      dispatch(readerActions.setServerStatus("online", health));
+      return { status: "online" as const, health };
     } catch {
-      dispatch(readerActions.setServerStatus("offline", null));
+      return { status: "offline" as const, health: null };
     }
-  }, [dispatch]);
+  }, []);
 
   const refreshVoices = useCallback(async () => {
     try {
-      const payload = await fetchVoices();
+      return await fetchVoices();
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const applyHealth = async () => {
+      const result = await refreshHealth();
+      if (!cancelled) {
+        dispatch(readerActions.setServerStatus(result.status, result.health));
+      }
+    };
+
+    const applyVoices = async () => {
+      const payload = await refreshVoices();
+      if (!payload || cancelled) return;
       dispatch(readerActions.setVoices(payload.voices));
       if (!payload.voices.some((voice) => voice.name === selectedVoice)) {
         dispatch(readerActions.setVoice(payload.default_voice));
       }
-    } catch {}
-  }, [dispatch, selectedVoice]);
+    };
 
-  useEffect(() => {
-    void refreshHealth();
-    void refreshVoices();
-    const interval = setInterval(() => void refreshHealth(), 10000);
-    return () => clearInterval(interval);
-  }, [refreshHealth, refreshVoices]);
+    void applyHealth();
+    void applyVoices();
+    const interval = setInterval(() => void applyHealth(), 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [dispatch, refreshHealth, refreshVoices, selectedVoice]);
 
-  return { refreshVoices };
+  return {
+    refreshVoices: async () => {
+      const payload = await refreshVoices();
+      if (!payload) return;
+      dispatch(readerActions.setVoices(payload.voices));
+      if (!payload.voices.some((voice) => voice.name === selectedVoice)) {
+        dispatch(readerActions.setVoice(payload.default_voice));
+      }
+    },
+  };
 }

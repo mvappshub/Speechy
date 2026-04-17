@@ -3,6 +3,7 @@ import type { PlaybackState, ReaderProgress } from "../domain/types";
 export function PlaybackControls({
   playbackState,
   progress,
+  loadingLabel,
   disabled,
   downloadUrl,
   onPlay,
@@ -12,6 +13,7 @@ export function PlaybackControls({
 }: {
   playbackState: PlaybackState;
   progress: ReaderProgress | null;
+  loadingLabel?: string | null;
   disabled: boolean;
   downloadUrl: string | null;
   onPlay: () => void;
@@ -38,7 +40,7 @@ export function PlaybackControls({
           className="inline-flex items-center gap-1 text-inherit opacity-70"
         >
           <span>…</span>
-          <span>{progress ? `Generuji ${progress.done}/${progress.total}` : "Generuji"}</span>
+          <span>{loadingLabel ?? (progress ? `Generuji ${progress.done}/${progress.total}` : "Generuji")}</span>
         </button>
       ) : null}
       {playbackState === "playing" ? (

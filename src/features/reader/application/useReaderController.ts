@@ -46,8 +46,19 @@ export function useReaderController() {
   }, [chunks, state.selectedChunk]);
 
   useEffect(() => {
-    void refreshProjects();
-  }, [refreshProjects]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const projects = await fetchProjects();
+        if (!cancelled) dispatch(readerActions.setProjects(projects));
+      } catch {
+        if (!cancelled) dispatch(readerActions.setProjects([]));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch]);
 
   useEffect(() => {
     if (initialRestoreDoneRef.current) return;
@@ -103,6 +114,7 @@ export function useReaderController() {
     chunks,
     currentChunkIndex: playbackSession.currentChunkIndex,
     downloadUrl: playbackSession.downloadUrl,
+    playbackStatus: playbackSession.playbackStatus,
     textareaRef: playbackSession.textareaRef,
     onTextChange: (value: string) => {
       dispatch(readerActions.setText(value));

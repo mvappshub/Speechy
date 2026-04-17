@@ -19,13 +19,6 @@ export function createAudioPlayer() {
   let hasActiveSource = false;
   let loadVersion = 0;
 
-  function ensureAudio() {
-    if (!audio) {
-      audio = new Audio();
-    }
-    return audio;
-  }
-
   function updateDebugState(state: "idle" | "loaded" | "playing" | "paused" | "error") {
     if (typeof window === "undefined") return;
     window.__readerAudioDebug = {
@@ -35,46 +28,55 @@ export function createAudioPlayer() {
     };
   }
 
-  function bindEvents(events: AudioEvents) {
-    if (!audio) return;
-    audio.onended = () => {
+  function releaseAudioElement(element: HTMLAudioElement | null) {
+    if (!element) return;
+    element.pause();
+    element.onended = null;
+    element.onerror = null;
+    element.ontimeupdate = null;
+    element.removeAttribute("src");
+    element.load();
+  }
+
+  function bindEvents(element: HTMLAudioElement, events: AudioEvents, version: number) {
+    element.onended = () => {
+      if (version !== loadVersion || audio !== element) return;
       hasActiveSource = false;
       updateDebugState("idle");
       events.onEnded();
     };
-    audio.onerror = () => {
+    element.onerror = () => {
+      if (version !== loadVersion || audio !== element) return;
       hasActiveSource = false;
       updateDebugState("error");
       events.onError();
     };
-    audio.ontimeupdate = () => {
-      updateDebugState(audio?.paused ? "paused" : "playing");
-      events.onTimeUpdate(audio?.currentTime ?? 0);
+    element.ontimeupdate = () => {
+      if (version !== loadVersion || audio !== element) return;
+      updateDebugState(element.paused ? "paused" : "playing");
+      events.onTimeUpdate(element.currentTime ?? 0);
     };
   }
 
   function clearAudio() {
     loadVersion += 1;
-    if (!audio) return;
+    const currentAudio = audio;
+    audio = null;
     hasActiveSource = false;
-    audio.pause();
-    audio.onended = null;
-    audio.onerror = null;
-    audio.ontimeupdate = null;
-    audio.removeAttribute("src");
-    audio.load();
+    releaseAudioElement(currentAudio);
     updateDebugState("idle");
   }
 
   return {
     async load(url: string, volume: number, events: AudioEvents) {
-      const element = ensureAudio();
       clearAudio();
       const version = loadVersion;
+      const element = new Audio();
+      audio = element;
       element.preload = "auto";
       element.volume = volume;
-      bindEvents(events);
-      updateDebugState("loaded");
+      bindEvents(element, events, version);
+      updateDebugState("idle");
 
       await new Promise<void>((resolve, reject) => {
         const cleanup = () => {
@@ -85,14 +87,17 @@ export function createAudioPlayer() {
 
         const onReady = () => {
           cleanup();
-          if (loadVersion !== version) return;
+          if (loadVersion !== version || audio !== element) return;
           hasActiveSource = true;
+          updateDebugState("loaded");
           resolve();
         };
 
         const onFailure = () => {
           cleanup();
-          if (loadVersion !== version) return;
+          if (loadVersion !== version || audio !== element) return;
+          hasActiveSource = false;
+          updateDebugState("error");
           reject(new Error("Audio could not be loaded."));
         };
 
@@ -105,9 +110,13 @@ export function createAudioPlayer() {
       });
     },
     async play() {
-      if (audio) {
-        await audio.play();
-        updateDebugState("playing");
+      const currentAudio = audio;
+      const version = loadVersion;
+      if (currentAudio) {
+        await currentAudio.play();
+        if (audio === currentAudio && version === loadVersion) {
+          updateDebugState("playing");
+        }
       }
     },
     pause() {
@@ -115,9 +124,13 @@ export function createAudioPlayer() {
       updateDebugState("paused");
     },
     async resume() {
-      if (audio) {
-        await audio.play();
-        updateDebugState("playing");
+      const currentAudio = audio;
+      const version = loadVersion;
+      if (currentAudio) {
+        await currentAudio.play();
+        if (audio === currentAudio && version === loadVersion) {
+          updateDebugState("playing");
+        }
       }
     },
     stop() {

@@ -1,6 +1,7 @@
 const KEY = "ttsCzechState";
 
 export function loadReaderSettings() {
+  if (typeof window === "undefined") return null;
   const raw = localStorage.getItem(KEY);
   if (!raw) return null;
   try {
@@ -25,5 +26,6 @@ export function saveReaderSettings(settings: {
   selectedVoice: string;
   currentProjectId: string | null;
 }) {
+  if (typeof window === "undefined") return;
   localStorage.setItem(KEY, JSON.stringify(settings));
 }

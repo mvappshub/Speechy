@@ -14,6 +14,12 @@ export function ReaderScreen() {
   const controller = useReaderController();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const isPlaybackVisible = controller.state.isBlockMode;
+  const statusLabel =
+    controller.state.playbackState === "loading"
+      ? controller.playbackStatus?.label ?? null
+      : controller.playbackStatus?.kind === "generating"
+        ? controller.playbackStatus.label
+        : null;
 
   return (
     <div className="min-h-screen w-full bg-white font-sans">
@@ -69,14 +75,10 @@ export function ReaderScreen() {
           </div>
 
           <div className="flex min-h-5 items-center gap-2 text-gray-500">
-            {controller.state.progress &&
-            controller.state.playbackState !== "idle" &&
-            controller.state.progress.status !== "done" ? (
+            {statusLabel ? (
               <>
                 <LoaderCircle className="h-3 w-3 animate-spin" />
-                <span>
-                  Generuji {controller.state.progress.done}/{controller.state.progress.total}
-                </span>
+                <span>{statusLabel}</span>
               </>
             ) : null}
           </div>
@@ -111,6 +113,7 @@ export function ReaderScreen() {
         <PlaybackControls
           playbackState={controller.state.playbackState}
           progress={controller.state.progress}
+          loadingLabel={controller.playbackStatus?.label ?? null}
           disabled={
             controller.state.serverStatus !== "online" ||
             !controller.state.text.trim() ||

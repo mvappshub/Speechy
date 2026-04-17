@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import os
 import tempfile
+import traceback
 import uuid
 from pathlib import Path
 from time import time
@@ -399,6 +400,7 @@ class JobService:
             for block in project["blocks"]:
                 if block["status"] == "done":
                     continue
+                current_step = "prompt"
                 try:
                     if block["voice"] not in prompt_cache:
                         prompt_cache[block["voice"]] = await loop.run_in_executor(
@@ -408,6 +410,7 @@ class JobService:
                             True,
                         )
 
+                    current_step = "render"
                     waveform, sample_rate = await loop.run_in_executor(
                         None,
                         self._render_block,
@@ -422,12 +425,14 @@ class JobService:
                         prompt_cache[block["voice"]],
                     )
                     duration_ms = int(round((len(waveform) / sample_rate) * 1000))
+                    current_step = "write-wav"
                     audio_bytes = await loop.run_in_executor(
                         None,
                         self.runtime.write_final_wav,
                         waveform,
                         sample_rate,
                     )
+                    current_step = "save-block-audio"
                     audio_path = self.project_store.save_project_block_audio(
                         project_id=project_id,
                         block_index=block["index"],
@@ -435,6 +440,7 @@ class JobService:
                         text=block["text"],
                         audio_bytes=audio_bytes,
                     )
+                    current_step = "update-block"
                     self.project_store.update_project_block(
                         project_id,
                         block["index"],
@@ -445,6 +451,14 @@ class JobService:
                         error=None,
                     )
                 except Exception as exc:
+                    error_message = f"{current_step}: {repr(exc)}"
+                    error_trace = traceback.format_exc()
+                    self._log_project_render_error(
+                        project_id=project_id,
+                        block_index=block["index"],
+                        step=current_step,
+                        error_trace=error_trace,
+                    )
                     self.project_store.update_project_block(
                         project_id,
                         block["index"],
@@ -452,7 +466,7 @@ class JobService:
                         audio_path=None,
                         duration_ms=None,
                         sample_rate=None,
-                        error=repr(exc),
+                        error=error_message,
                     )
                     return
 
@@ -489,4 +503,19 @@ class JobService:
                 duration_ms=timeline_block["end_ms"] - timeline_block["start_ms"],
                 sample_rate=sample_rate,
                 error=None,
+            )
+
+    def _log_project_render_error(
+        self,
+        *,
+        project_id: str,
+        block_index: int,
+        step: str,
+        error_trace: str,
+    ):
+        target = self.storage_dir / "project-render-errors.log"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("a", encoding="utf-8") as handle:
+            handle.write(
+                f"[project={project_id} block={block_index} step={step}]\n{error_trace}\n"
             )

@@ -42,6 +42,15 @@ export const initialReaderState: ReaderState = {
   progress: null,
 };
 
+export function createInitialReaderState(
+  overrides?: Partial<Pick<ReaderState, "text" | "speed" | "volume" | "textScale" | "selectedVoice" | "currentProjectId">>,
+): ReaderState {
+  return {
+    ...initialReaderState,
+    ...overrides,
+  };
+}
+
 export function readerReducer(state: ReaderState, action: ReaderAction): ReaderState {
   switch (action.type) {
     case "settings/loaded":
