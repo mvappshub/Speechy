@@ -213,14 +213,14 @@ export function useLongFormPlaybackSession({
           applyProject(restarted.project);
         }
 
-        const started = await tryPlayDesiredChunk();
+        const started = await (tryPlayDesiredChunkRef.current?.() ?? Promise.resolve(false));
         if (started) return;
         if (desiredChunkRef.current >= queueLengthRef.current) return;
 
         await delay(POLL_INTERVAL_MS);
       }
     },
-    [applyProject, tryPlayDesiredChunk],
+    [applyProject],
   );
 
   pollProjectUntilReadyRef.current = pollProjectUntilReady;
@@ -337,27 +337,32 @@ export function useLongFormPlaybackSession({
     async (chunk: PlaybackChunk) => {
       dispatch(readerActions.selectChunk(chunk.index));
       desiredChunkRef.current = chunk.index;
-      if (state.playbackState === "idle") return;
 
       const currentProject = projectRef.current;
       if (!currentProject) return;
 
+      // Always stop current audio and polling so the click takes effect immediately
+      stopPolling();
+      playbackRequestRef.current += 1;
+      activeChunkRef.current = null;
+      pendingLoadRef.current = false;
+      revokeObjectUrl();
+      audioPlayerRef.current.stop();
+
       const playableChunkIndex = findNextPlayableBlockIndex(currentProject.blocks, chunk.index);
       if (playableChunkIndex >= 0) {
-        playbackRequestRef.current += 1;
-        activeChunkRef.current = null;
-        pendingLoadRef.current = false;
-        revokeObjectUrl();
-        audioPlayerRef.current.stop();
         desiredChunkRef.current = playableChunkIndex;
         dispatch(readerActions.setPlaybackState("loading"));
         await playBlockAtIndex(playableChunkIndex);
         return;
       }
 
+      // Block not ready yet — set desired and poll until it becomes ready, then auto-play
       dispatch(readerActions.setPlaybackState("loading"));
+      const token = pollTokenRef.current;
+      void pollProjectUntilReadyRef.current?.(currentProject.id, token);
     },
-    [dispatch, playBlockAtIndex, revokeObjectUrl, state.playbackState],
+    [dispatch, playBlockAtIndex, revokeObjectUrl, stopPolling],
   );
 
   const onProjectOpen = useCallback(
