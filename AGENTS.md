@@ -26,3 +26,58 @@ The visible history is minimal and uses short imperative subjects (`Initial comm
 
 ## Configuration Notes
 Keep secrets in `.env` and do not commit local credentials or generated logs. Configure the frontend TTS backend via `NEXT_PUBLIC_TTS_API_BASE_URL` when the API is not available on `http://localhost:8000`. Large model files under `tts-server/` should only change when the voice or model setup intentionally changes.
+
+## Codex Workflow Addendum
+This repository also includes a project-local skill at `.codex/skills/karpathy-guidelines/SKILL.md`.
+
+When working in this repo, prefer that workflow in addition to the rules above:
+- surface assumptions before implementation when ambiguity would change the approach
+- keep changes minimal and local to the requested behavior
+- verify with the narrowest relevant repo command such as `npm run test:frontend`, `npm run test:backend`, `npm run lint`, or `npm run verify`
+- report what was verified and what remains unverified
+
+## Selective Superpowers Policy
+In this project, do not auto-activate heavyweight superpowers workflows for greetings, casual chat, simple factual questions, translation, summarization, or obvious one-step housekeeping.
+
+The `using-superpowers` skill is overridden here: treat it as optional guidance, not a mandatory startup step for every message.
+
+Use `brainstorming` only when at least one of these is true:
+- the user asks for ideas, product/design exploration, or architecture direction
+- the request is ambiguous enough that different interpretations would lead to different implementations
+- the work introduces a new feature, workflow, or UI behavior with meaningful tradeoffs
+
+Skip `brainstorming` when the task is already concrete, narrow, and has clear success criteria.
+
+Use `systematic-debugging` when there is a real failure signal:
+- failing tests
+- build or lint failures without an obvious single-line fix
+- runtime bugs
+- unexpected integration behavior across frontend, backend, and local TTS pieces
+
+Do not invoke full debugging ceremony for obvious typo-level or copy-only fixes.
+
+Use `test-driven-development` for bug fixes and behavior changes when the behavior can be tested at reasonable cost, especially in:
+- `src/features/reader/`
+- `src/lib/`
+- `tts-server/`
+
+TDD is preferred but not mandatory for:
+- copy changes
+- documentation edits
+- styling-only tweaks
+- configuration-only changes
+- log message changes
+- tasks where no meaningful automated test exists yet and creating one would dominate the task
+
+Use `verification-before-completion` whenever code changed and you are about to claim something is fixed, complete, or passing.
+
+If multiple process skills could apply, keep it lean:
+- for ambiguous feature work: `brainstorming` first, then implement
+- for bugs: `systematic-debugging` first, then `test-driven-development` for the regression test when practical
+- do not stack multiple heavy workflows unless each one clearly adds value
+
+This repository is operated by a non-programmer user. Optimize for:
+- plain-language explanations
+- one focused question at a time only when necessary
+- fewer speculative refactors
+- stronger guardrails against hallucinated assumptions and unnecessary code churn
