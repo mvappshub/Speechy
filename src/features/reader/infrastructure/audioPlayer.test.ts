@@ -32,6 +32,21 @@ class FakeAudio {
     this.listeners.get(type)?.delete(listener);
   }
 
+  removeAttribute(name: string) {
+    if (name === "src") {
+      this.src = "";
+    }
+  }
+
+  load() {
+    if (!this.src) return undefined;
+    queueMicrotask(() => {
+      this.listeners.get("loadeddata")?.forEach((listener) => listener());
+      this.listeners.get("canplay")?.forEach((listener) => listener());
+    });
+    return undefined;
+  }
+
   async play() {
     this.paused = false;
   }

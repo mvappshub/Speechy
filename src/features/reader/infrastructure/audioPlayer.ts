@@ -17,6 +17,7 @@ declare global {
 export function createAudioPlayer() {
   let audio: HTMLAudioElement | null = null;
   let hasActiveSource = false;
+  let loadVersion = 0;
 
   function ensureAudio() {
     if (!audio) {
@@ -59,7 +60,8 @@ export function createAudioPlayer() {
     audio.onended = null;
     audio.onerror = null;
     audio.ontimeupdate = null;
-    audio.src = "";
+    audio.removeAttribute("src");
+    audio.load();
     updateDebugState("idle");
   }
 
@@ -67,36 +69,51 @@ export function createAudioPlayer() {
     async load(url: string, volume: number, events: AudioEvents) {
       const element = ensureAudio();
       clearAudio();
-      element.src = url;
+      const currentLoadVersion = ++loadVersion;
       element.preload = "auto";
       element.volume = volume;
-      hasActiveSource = true;
       bindEvents(events);
       updateDebugState("loaded");
 
-      if (element.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) return;
+      if (element.src === url && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        hasActiveSource = true;
+        return;
+      }
 
       await new Promise<void>((resolve, reject) => {
-        if (!audio) {
-          resolve();
-          return;
-        }
+        const cleanup = () => {
+          element.removeEventListener("loadeddata", onReady);
+          element.removeEventListener("canplay", onReady);
+          element.removeEventListener("error", onFailure);
+        };
 
         const onReady = () => {
-          if (!audio) return;
-          audio.removeEventListener("canplaythrough", onReady);
-          audio.removeEventListener("error", onFailure);
+          if (currentLoadVersion !== loadVersion) {
+            cleanup();
+            resolve();
+            return;
+          }
+          cleanup();
+          hasActiveSource = true;
           resolve();
         };
+
         const onFailure = () => {
-          if (!audio) return;
-          audio.removeEventListener("canplaythrough", onReady);
-          audio.removeEventListener("error", onFailure);
+          if (currentLoadVersion !== loadVersion) {
+            cleanup();
+            resolve();
+            return;
+          }
+          cleanup();
           reject(new Error("Audio could not be loaded."));
         };
 
-        audio.addEventListener("canplaythrough", onReady, { once: true });
-        audio.addEventListener("error", onFailure, { once: true });
+        element.addEventListener("loadeddata", onReady, { once: true });
+        element.addEventListener("canplay", onReady, { once: true });
+        element.addEventListener("error", onFailure, { once: true });
+
+        element.src = url;
+        element.load();
       });
     },
     async play() {
