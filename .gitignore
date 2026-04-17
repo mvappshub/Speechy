@@ -67,3 +67,4 @@ tts-server/application/__pycache__
 tts-server/domain/__pycache__
 tts-server/infrastructure/__pycache__
 tts-server/presentation/__pycache__
+.playwright-mcp/

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { PlaybackChunk } from "@/lib/chunking";
 import type { Voice } from "../domain/types";
 
@@ -21,9 +20,6 @@ export function PlaybackView({
   onChunkClick: (chunk: PlaybackChunk) => void;
   onBlockVoiceChange: (index: number, voice: string) => void;
 }) {
-  const [hoveredChunkIndex, setHoveredChunkIndex] = useState<number | null>(null);
-  const [editingChunkIndex, setEditingChunkIndex] = useState<number | null>(null);
-
   function formatVoiceLabel(value: string | undefined) {
     return (value ?? "").replace(/\.wav$/i, "");
   }
@@ -41,19 +37,11 @@ export function PlaybackView({
               : chunk.index < currentChunkIndex
                 ? "past"
                 : "future";
-          const showVoiceAction =
-            canAssignVoice && voices.length > 0 && (hoveredChunkIndex === chunk.index || state === "active");
-          const isEditingVoice = editingChunkIndex === chunk.index;
 
           return (
             <div
               key={`${chunk.index}-${chunk.start}`}
-              onMouseEnter={() => setHoveredChunkIndex(chunk.index)}
-              onMouseLeave={() => {
-                setHoveredChunkIndex((current) => (current === chunk.index ? null : current));
-                setEditingChunkIndex((current) => (current === chunk.index ? null : current));
-              }}
-              className="mb-3 grid grid-cols-[minmax(0,1fr)_7rem] items-start gap-4"
+              className="mb-3 grid grid-cols-[minmax(0,1fr)_11rem] items-start gap-4"
             >
               <button
                 type="button"
@@ -68,50 +56,38 @@ export function PlaybackView({
               >
                 {chunk.text}
               </button>
-
               <div
                 className={`flex min-h-[1.6em] items-start justify-end gap-2 pt-1 text-[10px] font-medium uppercase tracking-[0.18em] ${
                   state === "active" ? "text-black" : "text-gray-400"
                 }`}
               >
-                {isEditingVoice ? (
-                  <select
-                    value={blockVoices[chunk.index] ?? voices[0]?.name ?? ""}
-                    onChange={(event) => {
-                      onBlockVoiceChange(chunk.index, event.target.value);
-                      setEditingChunkIndex(null);
-                    }}
-                    onClick={(event) => event.stopPropagation()}
-                    className="w-full bg-transparent text-right outline-none"
-                    autoFocus
-                  >
-                    {voices.map((voice) => (
-                      <option key={voice.name} value={voice.name} className="text-black">
-                        {formatVoiceLabel(voice.name)}
-                      </option>
-                    ))}
-                  </select>
+                {canAssignVoice && voices.length > 0 ? (
+                  <div className="relative w-full">
+                    <select
+                      value={blockVoices[chunk.index] ?? ""}
+                      onChange={(event) => onBlockVoiceChange(chunk.index, event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      className={`w-full cursor-pointer appearance-none rounded border border-current bg-transparent px-3 py-2 pr-9 text-right outline-none transition-colors ${
+                        state === "active" ? "hover:bg-black hover:text-white" : "hover:text-black"
+                      }`}
+                      title="Vybrat hlas"
+                    >
+                      {voices.map((voice) => (
+                        <option key={voice.name} value={voice.name} className="text-black">
+                          {formatVoiceLabel(voice.name)}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+                      <svg className="h-3 w-3 fill-current" viewBox="0 0 20 20">
+                        <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+                      </svg>
+                    </div>
+                  </div>
                 ) : (
-                  <>
-                    <span className="truncate text-right">
-                      {formatVoiceLabel(blockVoices[chunk.index] ?? voices[0]?.name)}
-                    </span>
-                    {canAssignVoice ? (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setEditingChunkIndex(chunk.index);
-                        }}
-                        className={`shrink-0 transition-opacity ${
-                          showVoiceAction ? "opacity-100 text-black" : "pointer-events-none opacity-0"
-                        }`}
-                        aria-label="Změnit hlas bloku"
-                      >
-                        •••
-                      </button>
-                    ) : null}
-                  </>
+                  <span className="block w-full truncate text-right">
+                    {formatVoiceLabel(blockVoices[chunk.index])}
+                  </span>
                 )}
               </div>
             </div>

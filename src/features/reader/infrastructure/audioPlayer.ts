@@ -17,7 +17,6 @@ declare global {
 export function createAudioPlayer() {
   let audio: HTMLAudioElement | null = null;
   let hasActiveSource = false;
-  let loadVersion = 0;
 
   function ensureAudio() {
     if (!audio) {
@@ -69,16 +68,10 @@ export function createAudioPlayer() {
     async load(url: string, volume: number, events: AudioEvents) {
       const element = ensureAudio();
       clearAudio();
-      const currentLoadVersion = ++loadVersion;
       element.preload = "auto";
       element.volume = volume;
       bindEvents(events);
       updateDebugState("loaded");
-
-      if (element.src === url && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        hasActiveSource = true;
-        return;
-      }
 
       await new Promise<void>((resolve, reject) => {
         const cleanup = () => {
@@ -88,22 +81,12 @@ export function createAudioPlayer() {
         };
 
         const onReady = () => {
-          if (currentLoadVersion !== loadVersion) {
-            cleanup();
-            resolve();
-            return;
-          }
           cleanup();
           hasActiveSource = true;
           resolve();
         };
 
         const onFailure = () => {
-          if (currentLoadVersion !== loadVersion) {
-            cleanup();
-            resolve();
-            return;
-          }
           cleanup();
           reject(new Error("Audio could not be loaded."));
         };

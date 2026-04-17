@@ -14,6 +14,7 @@ export function useReaderController() {
   const [state, dispatch] = useReducer(readerReducer, initialReaderState);
   const paragraphChunks = useMemo(() => splitTextIntoParagraphChunks(state.text), [state.text]);
   const hydratedProjectIdRef = useRef<string | null>(null);
+  const initialRestoreDoneRef = useRef(false);
 
   useReaderSettings(state, dispatch);
   const refreshProjects = useCallback(async () => {
@@ -45,22 +46,15 @@ export function useReaderController() {
   }, [chunks, state.selectedChunk]);
 
   useEffect(() => {
-    if (!state.isBlockMode) return;
-    const nextBlockVoices = paragraphChunks.map((_, index) => state.blockVoices[index] ?? state.selectedVoice);
-    const changed =
-      nextBlockVoices.length !== state.blockVoices.length ||
-      nextBlockVoices.some((voice, index) => voice !== state.blockVoices[index]);
-    if (changed) dispatch(readerActions.setBlockVoices(nextBlockVoices));
-  }, [dispatch, paragraphChunks, state.blockVoices, state.isBlockMode, state.selectedVoice]);
-
-  useEffect(() => {
     void refreshProjects();
   }, [refreshProjects]);
 
   useEffect(() => {
+    if (initialRestoreDoneRef.current) return;
     if (!state.currentProjectId) return;
-    if (hydratedProjectIdRef.current === state.currentProjectId) return;
+
     let cancelled = false;
+    initialRestoreDoneRef.current = true;
 
     void (async () => {
       try {
@@ -84,8 +78,15 @@ export function useReaderController() {
     };
   }, [playbackSession.onProjectOpen, state.currentProjectId]);
 
+  const resolveBlockVoices = useCallback(
+    (voices: string[], fallbackVoice: string) =>
+      paragraphChunks.map((_, index) => voices[index] ?? fallbackVoice),
+    [paragraphChunks],
+  );
+
   async function onProjectOpen(projectOrId: ProjectSnapshot | string) {
     try {
+      initialRestoreDoneRef.current = true;
       const project = typeof projectOrId === "string" ? await fetchProject(projectOrId) : projectOrId;
       hydratedProjectIdRef.current = project.id;
       await playbackSession.onProjectOpen(project);
@@ -112,13 +113,13 @@ export function useReaderController() {
     onVolumeChange: (value: number) => dispatch(readerActions.setVolume(value)),
     onTextScaleChange: (value: number) => dispatch(readerActions.setTextScale(value)),
     onVoiceChange: (value: string) => {
-      const previousVoice = state.selectedVoice;
-      const nextBlockVoices =
-        state.blockVoices.length && state.isBlockMode
-          ? state.blockVoices.map((voice) => (voice === previousVoice ? value : voice))
-          : paragraphChunks.map(() => value);
       dispatch(readerActions.setVoice(value));
-      dispatch(readerActions.setBlockVoices(nextBlockVoices));
+      if (!state.isBlockMode) {
+        dispatch(readerActions.setBlockVoices(resolveBlockVoices([], value)));
+        return;
+      }
+
+      const resolvedBlockVoices = resolveBlockVoices(state.blockVoices, state.selectedVoice);
       if (state.isBlockMode) {
         void playbackSession.prepareProject({
           projectId: state.currentProjectId,
@@ -126,13 +127,13 @@ export function useReaderController() {
           voice: value,
           speed: state.speed,
           blocks: paragraphChunks,
-          blockVoices: nextBlockVoices,
+          blockVoices: resolvedBlockVoices,
         });
       }
     },
     onBlockVoiceChange: (index: number, voice: string) => {
-      const nextBlockVoices = paragraphChunks.map(
-        (_, blockIndex) => (blockIndex === index ? voice : state.blockVoices[blockIndex] ?? state.selectedVoice),
+      const nextBlockVoices = resolveBlockVoices(state.blockVoices, state.selectedVoice).map(
+        (currentVoice, blockIndex) => (blockIndex === index ? voice : currentVoice),
       );
       dispatch(readerActions.setBlockVoices(nextBlockVoices));
       if (state.isBlockMode) {
@@ -149,10 +150,11 @@ export function useReaderController() {
     onSplitBlocks: async () => {
       if (!paragraphChunks.length) return;
       try {
+        initialRestoreDoneRef.current = true;
         dispatch(readerActions.setError(null));
         dispatch(readerActions.setBlockMode(true));
         dispatch(readerActions.selectChunk(0));
-        const nextBlockVoices = paragraphChunks.map((_, index) => state.blockVoices[index] ?? state.selectedVoice);
+        const nextBlockVoices = resolveBlockVoices(state.blockVoices, state.selectedVoice);
         dispatch(readerActions.setBlockVoices(nextBlockVoices));
         const project = await playbackSession.prepareProject({
           projectId: state.currentProjectId,
@@ -188,6 +190,7 @@ export function useReaderController() {
     onProjectOpen,
     onProjectCreate: async () => {
       try {
+        initialRestoreDoneRef.current = true;
         dispatch(readerActions.setError(null));
         const project = await createProject();
         hydratedProjectIdRef.current = project.id;
@@ -201,6 +204,7 @@ export function useReaderController() {
     },
     onProjectRename: async (projectId: string, title: string) => {
       try {
+        initialRestoreDoneRef.current = true;
         dispatch(readerActions.setError(null));
         await updateProject(projectId, { title });
         await refreshProjects();
