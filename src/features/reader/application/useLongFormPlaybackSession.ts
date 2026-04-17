@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { PlaybackChunk } from "@/lib/chunking";
 import { clampChunkIndex, findChunkIndexAtCursor } from "../domain/chunkSelection";
-import { findNextPlayableBlockIndex } from "../domain/playback";
+import { findActiveTimelineBlockIndex, findNextPlayableBlockIndex, seekTimeForTimelineBlock } from "../domain/playback";
 import type { ProjectSnapshot } from "../domain/types";
 import { createAudioPlayer } from "../infrastructure/audioPlayer";
 import {
@@ -47,6 +47,7 @@ export function useLongFormPlaybackSession({
   const pollTokenRef = useRef(0);
   const projectRef = useRef<ProjectSnapshot | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  const staleAudioUrlsRef = useRef<string[]>([]);
   const desiredChunkRef = useRef(state.selectedChunk);
   const activeChunkRef = useRef<number | null>(null);
   const playTokenRef = useRef(0);
@@ -57,9 +58,14 @@ export function useLongFormPlaybackSession({
   }, []);
 
   const revokeAudioUrl = useCallback(() => {
-    if (!audioUrlRef.current) return;
-    URL.revokeObjectURL(audioUrlRef.current);
-    audioUrlRef.current = null;
+    if (audioUrlRef.current) {
+      staleAudioUrlsRef.current.push(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    while (staleAudioUrlsRef.current.length) {
+      const staleUrl = staleAudioUrlsRef.current.shift();
+      if (staleUrl) URL.revokeObjectURL(staleUrl);
+    }
   }, []);
 
   const clearRuntime = useCallback(() => {
@@ -94,10 +100,63 @@ export function useLongFormPlaybackSession({
     [dispatch],
   );
 
+  const playProjectFromFinalAudio = useCallback(
+    async (project: ProjectSnapshot, startChunkIndex: number) => {
+      const timeline = project.blocks
+        .filter((block) => block.start_ms !== null && block.end_ms !== null)
+        .map((block) => ({
+          index: block.index,
+          text: block.text,
+          start_ms: block.start_ms ?? 0,
+          end_ms: block.end_ms ?? 0,
+        }));
+
+      if (!timeline.length || !project.download_ready) return false;
+
+      const startTime = seekTimeForTimelineBlock(timeline, startChunkIndex);
+      activeChunkRef.current = startChunkIndex;
+      desiredChunkRef.current = startChunkIndex;
+
+      await audioPlayerRef.current.load(getProjectDownloadUrl(project.id), state.volume, {
+        onEnded: () => {
+          activeChunkRef.current = null;
+          dispatch(readerActions.setPlaybackState("idle"));
+        },
+        onError: () => {
+          dispatch(readerActions.setError("Chyba při přehrávání výsledného projektu."));
+          clearRuntime();
+          dispatch(readerActions.setPlaybackState("idle"));
+        },
+        onTimeUpdate: (currentTime) => {
+          const activeIndex = findActiveTimelineBlockIndex(timeline, currentTime);
+          if (activeIndex >= 0) {
+            activeChunkRef.current = activeIndex;
+            dispatch(readerActions.selectChunk(activeIndex));
+          }
+        },
+      });
+
+      audioPlayerRef.current.seek(startTime);
+      dispatch(readerActions.selectChunk(startChunkIndex));
+      await audioPlayerRef.current.play();
+      dispatch(readerActions.setPlaybackState("playing"));
+      return true;
+    },
+    [clearRuntime, dispatch, state.volume],
+  );
+
   const playBlockAtIndex = useCallback(
     async (blockIndex: number) => {
       const projectId = projectRef.current?.id;
       if (!projectId) return false;
+      const currentProject = projectRef.current;
+      if (
+        currentProject?.download_ready &&
+        currentProject.blocks.length > 0 &&
+        currentProject.blocks.every((block) => block.audio_ready && block.start_ms !== null && block.end_ms !== null)
+      ) {
+        return playProjectFromFinalAudio(currentProject, blockIndex);
+      }
       if (pendingPlayChunkRef.current !== null) {
         return pendingPlayChunkRef.current === blockIndex;
       }
@@ -108,11 +167,13 @@ export function useLongFormPlaybackSession({
       pendingPlayChunkRef.current = blockIndex;
       const playToken = ++playTokenRef.current;
       try {
-        revokeAudioUrl();
         const blob = await fetchProjectBlockAudioBlob(projectId, blockIndex);
         if (playToken !== playTokenRef.current) return false;
 
         const url = URL.createObjectURL(blob);
+        if (audioUrlRef.current) {
+          staleAudioUrlsRef.current.push(audioUrlRef.current);
+        }
         audioUrlRef.current = url;
         activeChunkRef.current = blockIndex;
         desiredChunkRef.current = blockIndex;
@@ -160,6 +221,10 @@ export function useLongFormPlaybackSession({
 
         dispatch(readerActions.selectChunk(blockIndex));
         await audioPlayerRef.current.play();
+        while (staleAudioUrlsRef.current.length) {
+          const staleUrl = staleAudioUrlsRef.current.shift();
+          if (staleUrl) URL.revokeObjectURL(staleUrl);
+        }
         dispatch(readerActions.setPlaybackState("playing"));
         return true;
       } finally {
@@ -168,7 +233,7 @@ export function useLongFormPlaybackSession({
         }
       }
     },
-    [clearRuntime, dispatch, revokeAudioUrl, state.volume],
+    [clearRuntime, dispatch, playProjectFromFinalAudio, revokeAudioUrl, state.volume],
   );
 
   const pollProjectUntilReady = useCallback(
