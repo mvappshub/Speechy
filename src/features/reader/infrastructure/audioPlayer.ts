@@ -16,6 +16,14 @@ declare global {
 
 export function createAudioPlayer() {
   let audio: HTMLAudioElement | null = null;
+  let hasActiveSource = false;
+
+  function ensureAudio() {
+    if (!audio) {
+      audio = new Audio();
+    }
+    return audio;
+  }
 
   function updateDebugState(state: "idle" | "loaded" | "playing" | "paused" | "error") {
     if (typeof window === "undefined") return;
@@ -29,10 +37,12 @@ export function createAudioPlayer() {
   function bindEvents(events: AudioEvents) {
     if (!audio) return;
     audio.onended = () => {
+      hasActiveSource = false;
       updateDebugState("idle");
       events.onEnded();
     };
     audio.onerror = () => {
+      hasActiveSource = false;
       updateDebugState("error");
       events.onError();
     };
@@ -44,25 +54,27 @@ export function createAudioPlayer() {
 
   function clearAudio() {
     if (!audio) return;
+    hasActiveSource = false;
     audio.pause();
     audio.onended = null;
     audio.onerror = null;
     audio.ontimeupdate = null;
     audio.src = "";
-    audio = null;
     updateDebugState("idle");
   }
 
   return {
     async load(url: string, volume: number, events: AudioEvents) {
+      const element = ensureAudio();
       clearAudio();
-      audio = new Audio(url);
-      audio.preload = "auto";
-      audio.volume = volume;
+      element.src = url;
+      element.preload = "auto";
+      element.volume = volume;
+      hasActiveSource = true;
       bindEvents(events);
       updateDebugState("loaded");
 
-      if (audio.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) return;
+      if (element.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) return;
 
       await new Promise<void>((resolve, reject) => {
         if (!audio) {
@@ -113,7 +125,7 @@ export function createAudioPlayer() {
       if (audio) audio.volume = volume;
     },
     hasActiveAudio() {
-      return Boolean(audio);
+      return hasActiveSource;
     },
   };
 }

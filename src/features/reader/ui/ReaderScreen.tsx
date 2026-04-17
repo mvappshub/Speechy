@@ -69,9 +69,6 @@ export function ReaderScreen() {
           </div>
 
           <div className="flex min-h-5 items-center gap-2 text-gray-500">
-            {controller.state.isBlockMode && controller.state.playbackState === "idle" ? (
-              <span>Bloky připravené. Klikni na hlas vpravo a pak na Přehrát.</span>
-            ) : null}
             {controller.state.progress &&
             controller.state.playbackState !== "idle" &&
             controller.state.progress.status !== "done" ? (

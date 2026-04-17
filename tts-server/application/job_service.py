@@ -30,7 +30,7 @@ class JobService:
         self.storage_dir = storage_dir or Path(tempfile.gettempdir()) / "omnivoice-jobs"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.project_store = ProjectStore(
-            self.storage_dir / "projects-db",
+            self.storage_dir,
             getattr(runtime, "model_name", "runtime"),
         )
         self._tasks: dict[str, asyncio.Task[None]] = {}
@@ -428,15 +428,12 @@ class JobService:
                         waveform,
                         sample_rate,
                     )
-                    audio_path = self.project_store.save_cached_block(
-                        cache_key=block["cache_key"],
-                        text=block["text"],
+                    audio_path = self.project_store.save_project_block_audio(
+                        project_id=project_id,
+                        block_index=block["index"],
                         voice=block["voice"],
-                        language=project["language"],
-                        settings=settings,
+                        text=block["text"],
                         audio_bytes=audio_bytes,
-                        duration_ms=duration_ms,
-                        sample_rate=sample_rate,
                     )
                     self.project_store.update_project_block(
                         project_id,

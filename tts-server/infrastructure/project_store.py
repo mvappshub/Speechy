@@ -1,8 +1,8 @@
 import hashlib
 import json
-import sqlite3
+import re
+import shutil
 import uuid
-from contextlib import contextmanager
 from pathlib import Path
 from time import time
 from typing import Any
@@ -16,17 +16,19 @@ def _derive_title(text: str) -> str:
     return "Novy projekt"
 
 
+def _slugify(value: str, fallback: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return normalized[:40] or fallback
+
+
 class ProjectStore:
     def __init__(self, base_dir: Path, model_identity: str):
         self.base_dir = base_dir
         self.model_identity = model_identity
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_dir = self.base_dir / "cache"
         self.projects_dir = self.base_dir / "projects"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.projects_dir.mkdir(parents=True, exist_ok=True)
-        self.db_path = self.base_dir / "projects.db"
-        self._init_db()
+        self._cleanup_legacy_storage()
 
     def sync_project(
         self,
@@ -40,186 +42,112 @@ class ProjectStore:
     ):
         now = time()
         resolved_id = project_id or str(uuid.uuid4())
-        previous = self._fetch_project_row(resolved_id)
-        previous_block_keys = self._fetch_project_block_keys(resolved_id)
-        next_block_keys: list[str] = []
-        final_audio_path = previous["final_audio_path"] if previous else None
+        previous = self._load_project(resolved_id)
+        previous_blocks = previous["blocks"] if previous else []
+        next_blocks: list[dict[str, Any]] = []
+        block_keys_changed = False
 
-        with self._connection() as conn:
-            created_at = previous["created_at"] if previous else now
-            title = previous["title"] if previous else _derive_title(text)
-            pinned = previous["pinned"] if previous else 0
-            conn.execute(
-                """
-                INSERT INTO projects (
-                    id, title, text, language, selected_voice, settings_json, output_metadata_json,
-                    final_audio_path, pinned, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    title=excluded.title,
-                    text=excluded.text,
-                    language=excluded.language,
-                    selected_voice=excluded.selected_voice,
-                    settings_json=excluded.settings_json,
-                    output_metadata_json=excluded.output_metadata_json,
-                    final_audio_path=excluded.final_audio_path,
-                    pinned=excluded.pinned,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    resolved_id,
-                    title,
-                    text,
-                    language,
-                    selected_voice,
-                    json.dumps(settings, sort_keys=True),
-                    json.dumps({}, sort_keys=True),
-                    final_audio_path,
-                    pinned,
-                    created_at,
-                    now,
-                ),
-            )
-            conn.execute("DELETE FROM project_blocks WHERE project_id = ?", (resolved_id,))
+        for index, block in enumerate(blocks):
+          cache_key = self.build_cache_key(
+              text=block["text"],
+              voice=block["voice"],
+              language=language,
+              settings=settings,
+          )
+          previous_block = previous_blocks[index] if index < len(previous_blocks) else None
+          reused = previous_block and previous_block.get("cache_key") == cache_key
+          if not reused:
+              block_keys_changed = True
+          next_blocks.append(
+              {
+                  "index": index,
+                  "text": block["text"],
+                  "voice": block["voice"],
+                  "cache_key": cache_key,
+                  "status": previous_block["status"] if reused else "queued",
+                  "error": previous_block.get("error") if reused else None,
+                  "audio_path": previous_block.get("audio_path") if reused else None,
+                  "audio_ready": previous_block.get("audio_ready", False) if reused else False,
+                  "duration_ms": previous_block.get("duration_ms") if reused else None,
+                  "sample_rate": previous_block.get("sample_rate") if reused else None,
+                  "start_ms": previous_block.get("start_ms") if reused else None,
+                  "end_ms": previous_block.get("end_ms") if reused else None,
+              }
+          )
 
-            for index, block in enumerate(blocks):
-                cache_key = self.build_cache_key(
-                    text=block["text"],
-                    voice=block["voice"],
-                    language=language,
-                    settings=settings,
-                )
-                next_block_keys.append(cache_key)
-                cached = self.get_cached_block(cache_key, conn=conn)
-                conn.execute(
-                    """
-                    INSERT INTO project_blocks (
-                        project_id, block_index, text, voice, cache_key, status, error, audio_path,
-                        duration_ms, sample_rate, start_ms, end_ms
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        resolved_id,
-                        index,
-                        block["text"],
-                        block["voice"],
-                        cache_key,
-                        "done" if cached else "queued",
-                        None,
-                        cached["audio_path"] if cached else None,
-                        cached["duration_ms"] if cached else None,
-                        cached["sample_rate"] if cached else None,
-                        None,
-                        None,
-                    ),
-                )
+        if previous and len(previous_blocks) != len(next_blocks):
+            block_keys_changed = True
 
-            if previous_block_keys != next_block_keys:
-                conn.execute(
-                    "UPDATE projects SET final_audio_path = NULL, updated_at = ? WHERE id = ?",
-                    (now, resolved_id),
-                )
+        project = {
+            "id": resolved_id,
+            "title": previous["title"] if previous else _derive_title(text),
+            "text": text,
+            "language": language,
+            "pinned": previous["pinned"] if previous else False,
+            "selected_voice": selected_voice,
+            "settings": settings,
+            "created_at": previous["created_at"] if previous else now,
+            "updated_at": now,
+            "final_audio_path": previous["final_audio_path"] if previous and not block_keys_changed else None,
+            "download_ready": False,
+            "total_blocks": len(next_blocks),
+            "completed_blocks": 0,
+            "blocks": next_blocks,
+        }
 
-        self.recompute_timeline(resolved_id)
+        if previous:
+            self._delete_stale_block_files(project, previous_blocks, next_blocks)
+            if block_keys_changed:
+                self._delete_final_audio(project["id"])
+
+        self.recompute_timeline_data(project)
+        self._save_project(project)
         return self.get_project(resolved_id)
 
     def list_projects(self):
-        with self._connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, title, text, pinned, updated_at, created_at
-                FROM projects
-                ORDER BY pinned DESC, updated_at DESC
-                LIMIT 100
-                """
-            ).fetchall()
-        return [
-            {
-                "id": row["id"],
-                "title": row["title"],
-                "preview": _normalize_text(row["text"])[:96],
-                "pinned": bool(row["pinned"]),
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-            }
-            for row in rows
-        ]
+        projects: list[dict[str, Any]] = []
+        for project_file in self.projects_dir.glob("*/project.json"):
+            project = self._read_project_file(project_file)
+            projects.append(
+                {
+                    "id": project["id"],
+                    "title": project["title"],
+                    "preview": _normalize_text(project["text"])[:96],
+                    "pinned": bool(project.get("pinned", False)),
+                    "created_at": project["created_at"],
+                    "updated_at": project["updated_at"],
+                }
+            )
+        return sorted(projects, key=lambda item: (not item["pinned"], -item["updated_at"]))[:100]
 
     def get_project(self, project_id: str):
-        with self._connection() as conn:
-            project = self._fetch_project_row(project_id, conn=conn)
-            if not project:
-                raise KeyError(project_id)
-            blocks = conn.execute(
-                """
-                SELECT block_index, text, voice, cache_key, status, error, audio_path, duration_ms,
-                       sample_rate, start_ms, end_ms
-                FROM project_blocks
-                WHERE project_id = ?
-                ORDER BY block_index ASC
-                """,
-                (project_id,),
-            ).fetchall()
-
-        completed_blocks = sum(1 for block in blocks if block["status"] == "done")
-        return {
-            "id": project["id"],
-            "title": project["title"],
-            "text": project["text"],
-            "language": project["language"],
-            "pinned": bool(project["pinned"]),
-            "selected_voice": project["selected_voice"],
-            "settings": json.loads(project["settings_json"]),
-            "created_at": project["created_at"],
-            "updated_at": project["updated_at"],
-            "final_audio_path": project["final_audio_path"],
-            "download_ready": bool(project["final_audio_path"]),
-            "total_blocks": len(blocks),
-            "completed_blocks": completed_blocks,
-            "blocks": [
-                {
-                    "index": block["block_index"],
-                    "text": block["text"],
-                    "voice": block["voice"],
-                    "cache_key": block["cache_key"],
-                    "status": block["status"],
-                    "error": block["error"],
-                    "audio_path": block["audio_path"],
-                    "audio_ready": bool(block["audio_path"]) and block["status"] == "done",
-                    "duration_ms": block["duration_ms"],
-                    "sample_rate": block["sample_rate"],
-                    "start_ms": block["start_ms"],
-                    "end_ms": block["end_ms"],
-                }
-                for block in blocks
-            ],
-        }
+        project = self._load_project(project_id)
+        if not project:
+            raise KeyError(project_id)
+        self.recompute_timeline_data(project)
+        self._save_project(project)
+        return project
 
     def create_project(self, *, title: str | None, selected_voice: str):
         now = time()
         project_id = str(uuid.uuid4())
-        with self._connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO projects (
-                    id, title, text, language, selected_voice, settings_json, output_metadata_json,
-                    final_audio_path, pinned, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    project_id,
-                    title.strip() if title and title.strip() else "Novy projekt",
-                    "",
-                    "cs",
-                    selected_voice,
-                    json.dumps({"speed": 1.0}, sort_keys=True),
-                    json.dumps({}, sort_keys=True),
-                    None,
-                    0,
-                    now,
-                    now,
-                ),
-            )
+        project = {
+            "id": project_id,
+            "title": title.strip() if title and title.strip() else "Novy projekt",
+            "text": "",
+            "language": "cs",
+            "pinned": False,
+            "selected_voice": selected_voice,
+            "settings": {"speed": 1.0},
+            "created_at": now,
+            "updated_at": now,
+            "final_audio_path": None,
+            "download_ready": False,
+            "total_blocks": 0,
+            "completed_blocks": 0,
+            "blocks": [],
+        }
+        self._save_project(project)
         return self.get_project(project_id)
 
     def update_project_metadata(
@@ -230,88 +158,20 @@ class ProjectStore:
         pinned: bool | None = None,
     ):
         project = self.get_project(project_id)
-        next_title = title.strip() if title is not None and title.strip() else project["title"]
-        next_pinned = int(pinned if pinned is not None else project["pinned"])
-        with self._connection() as conn:
-            conn.execute(
-                "UPDATE projects SET title = ?, pinned = ?, updated_at = ? WHERE id = ?",
-                (next_title, next_pinned, time(), project_id),
-            )
+        if title is not None and title.strip():
+            project["title"] = title.strip()
+        if pinned is not None:
+            project["pinned"] = bool(pinned)
+        project["updated_at"] = time()
+        self._save_project(project)
         return self.get_project(project_id)
 
     def delete_project(self, project_id: str):
         project = self.get_project(project_id)
-        with self._connection() as conn:
-            conn.execute("DELETE FROM project_blocks WHERE project_id = ?", (project_id,))
-            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-        project_dir = self.projects_dir / project_id
+        project_dir = self._project_dir(project_id)
         if project_dir.exists():
-            for child in project_dir.iterdir():
-                with contextlib.suppress(OSError):
-                    child.unlink()
-            with contextlib.suppress(OSError):
-                project_dir.rmdir()
+            shutil.rmtree(project_dir, ignore_errors=True)
         return project
-
-    def get_cached_block(self, cache_key: str, *, conn: sqlite3.Connection | None = None):
-        owner = conn or self._connect()
-        close_owner = conn is None
-        try:
-            row = owner.execute(
-                """
-                SELECT cache_key, audio_path, duration_ms, sample_rate
-                FROM cached_blocks
-                WHERE cache_key = ?
-                """,
-                (cache_key,),
-            ).fetchone()
-            return dict(row) if row else None
-        finally:
-            if close_owner:
-                owner.close()
-
-    def save_cached_block(
-        self,
-        *,
-        cache_key: str,
-        text: str,
-        voice: str,
-        language: str,
-        settings: dict[str, Any],
-        audio_bytes: bytes,
-        duration_ms: int,
-        sample_rate: int,
-    ):
-        target = self.cache_dir / f"{cache_key}.wav"
-        if not target.exists():
-            target.write_bytes(audio_bytes)
-
-        with self._connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO cached_blocks (
-                    cache_key, text, voice, language, settings_json, model_identity,
-                    audio_path, duration_ms, sample_rate, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(cache_key) DO UPDATE SET
-                    audio_path=excluded.audio_path,
-                    duration_ms=excluded.duration_ms,
-                    sample_rate=excluded.sample_rate
-                """,
-                (
-                    cache_key,
-                    text,
-                    voice,
-                    language,
-                    json.dumps(settings, sort_keys=True),
-                    self.model_identity,
-                    str(target),
-                    duration_ms,
-                    sample_rate,
-                    time(),
-                ),
-            )
-        return str(target)
 
     def update_project_block(
         self,
@@ -324,45 +184,40 @@ class ProjectStore:
         sample_rate: int | None,
         error: str | None,
     ):
-        with self._connection() as conn:
-            conn.execute(
-                """
-                UPDATE project_blocks
-                SET status = ?, audio_path = ?, duration_ms = ?, sample_rate = ?, error = ?
-                WHERE project_id = ? AND block_index = ?
-                """,
-                (status, audio_path, duration_ms, sample_rate, error, project_id, block_index),
-            )
-            conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (time(), project_id))
-        self.recompute_timeline(project_id)
+        project = self.get_project(project_id)
+        try:
+            block = project["blocks"][block_index]
+        except IndexError as exc:
+            raise KeyError(block_index) from exc
+        block["status"] = status
+        block["audio_path"] = audio_path
+        block["audio_ready"] = bool(audio_path) and status == "done"
+        block["duration_ms"] = duration_ms
+        block["sample_rate"] = sample_rate
+        block["error"] = error
+        project["updated_at"] = time()
+        self.recompute_timeline_data(project)
+        self._save_project(project)
 
     def set_final_audio(self, project_id: str, audio_bytes: bytes):
-        project_dir = self.projects_dir / project_id
-        project_dir.mkdir(parents=True, exist_ok=True)
-        target = project_dir / "final.wav"
+        project = self.get_project(project_id)
+        target = self._project_dir(project_id) / "final.wav"
         target.write_bytes(audio_bytes)
-        with self._connection() as conn:
-            conn.execute(
-                "UPDATE projects SET final_audio_path = ?, updated_at = ? WHERE id = ?",
-                (str(target), time(), project_id),
-            )
+        project["final_audio_path"] = str(target)
+        project["download_ready"] = True
+        project["updated_at"] = time()
+        self._save_project(project)
         return str(target)
 
     def get_block_audio_path(self, project_id: str, block_index: int):
-        with self._connection() as conn:
-            row = conn.execute(
-                """
-                SELECT audio_path, status
-                FROM project_blocks
-                WHERE project_id = ? AND block_index = ?
-                """,
-                (project_id, block_index),
-            ).fetchone()
-        if not row:
-            raise KeyError(block_index)
-        if row["status"] != "done" or not row["audio_path"]:
-            raise ValueError(row["status"])
-        return row["audio_path"]
+        project = self.get_project(project_id)
+        try:
+            block = project["blocks"][block_index]
+        except IndexError as exc:
+            raise KeyError(block_index) from exc
+        if block["status"] != "done" or not block["audio_path"]:
+            raise ValueError(block["status"])
+        return block["audio_path"]
 
     def get_final_audio_path(self, project_id: str):
         project = self.get_project(project_id)
@@ -371,38 +226,29 @@ class ProjectStore:
         return project["final_audio_path"]
 
     def recompute_timeline(self, project_id: str):
-        with self._connection() as conn:
-            blocks = conn.execute(
-                """
-                SELECT block_index, duration_ms, status
-                FROM project_blocks
-                WHERE project_id = ?
-                ORDER BY block_index ASC
-                """,
-                (project_id,),
-            ).fetchall()
+        project = self.get_project(project_id)
+        self.recompute_timeline_data(project)
+        self._save_project(project)
 
-            current_ms = 0
-            gaps_detected = False
-            for block in blocks:
-                duration_ms = block["duration_ms"]
-                is_ready = block["status"] == "done" and duration_ms is not None
-                if gaps_detected or not is_ready:
-                    start_ms = None
-                    end_ms = None
-                    gaps_detected = True
-                else:
-                    start_ms = current_ms
-                    end_ms = current_ms + int(duration_ms)
-                    current_ms = end_ms
-                conn.execute(
-                    """
-                    UPDATE project_blocks
-                    SET start_ms = ?, end_ms = ?
-                    WHERE project_id = ? AND block_index = ?
-                    """,
-                    (start_ms, end_ms, project_id, block["block_index"]),
-                )
+    def recompute_timeline_data(self, project: dict[str, Any]):
+        current_ms = 0
+        gaps_detected = False
+        for block in project["blocks"]:
+            duration_ms = block.get("duration_ms")
+            is_ready = block["status"] == "done" and duration_ms is not None and block.get("audio_path")
+            if gaps_detected or not is_ready:
+                block["start_ms"] = None
+                block["end_ms"] = None
+                gaps_detected = True
+            else:
+                block["start_ms"] = current_ms
+                block["end_ms"] = current_ms + int(duration_ms)
+                current_ms = block["end_ms"]
+            block["audio_ready"] = bool(block.get("audio_path")) and block["status"] == "done"
+
+        project["total_blocks"] = len(project["blocks"])
+        project["completed_blocks"] = sum(1 for block in project["blocks"] if block["status"] == "done")
+        project["download_ready"] = bool(project.get("final_audio_path"))
 
     def build_cache_key(self, *, text: str, voice: str, language: str, settings: dict[str, Any]):
         payload = {
@@ -415,90 +261,99 @@ class ProjectStore:
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
-    def _fetch_project_row(self, project_id: str, *, conn: sqlite3.Connection | None = None):
-        owner = conn or self._connect()
-        close_owner = conn is None
-        try:
-            return owner.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-        finally:
-            if close_owner:
-                owner.close()
+    def save_project_block_audio(
+        self,
+        *,
+        project_id: str,
+        block_index: int,
+        voice: str,
+        text: str,
+        audio_bytes: bytes,
+    ):
+        project = self.get_project(project_id)
+        filename = self._build_block_filename(block_index, voice, text)
+        target = self._project_dir(project_id) / "blocks" / filename
+        target.write_bytes(audio_bytes)
+        project["updated_at"] = time()
+        self._save_project(project)
+        return str(target)
 
-    def _fetch_project_block_keys(self, project_id: str):
-        with self._connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT cache_key
-                FROM project_blocks
-                WHERE project_id = ?
-                ORDER BY block_index ASC
-                """,
-                (project_id,),
-            ).fetchall()
-        return [row["cache_key"] for row in rows]
+    def _build_block_filename(self, block_index: int, voice: str, text: str):
+        voice_slug = _slugify(Path(voice).stem, "voice")
+        text_slug = _slugify(_normalize_text(text)[:48], f"block-{block_index + 1}")
+        return f"{block_index + 1:02d}-{voice_slug}-{text_slug}.wav"
 
-    def _connect(self):
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _delete_stale_block_files(
+        self,
+        project: dict[str, Any],
+        previous_blocks: list[dict[str, Any]],
+        next_blocks: list[dict[str, Any]],
+    ):
+        next_keys = {block["cache_key"] for block in next_blocks}
+        for block in previous_blocks:
+            if block.get("cache_key") in next_keys:
+                continue
+            audio_path = block.get("audio_path")
+            if audio_path:
+                stale_path = Path(audio_path)
+                if stale_path.exists():
+                    stale_path.unlink()
 
-    @contextmanager
-    def _connection(self):
-        connection = self._connect()
-        try:
-            yield connection
-            connection.commit()
-        finally:
-            connection.close()
+    def _delete_final_audio(self, project_id: str):
+        target = self._project_dir(project_id) / "final.wav"
+        if target.exists():
+            target.unlink()
 
-    def _init_db(self):
-        with self._connection() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS projects (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    language TEXT NOT NULL,
-                    selected_voice TEXT NOT NULL,
-                    settings_json TEXT NOT NULL,
-                    output_metadata_json TEXT NOT NULL,
-                    final_audio_path TEXT,
-                    pinned INTEGER NOT NULL DEFAULT 0,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
+    def _project_dir(self, project_id: str):
+        project_dir = self.projects_dir / project_id
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "blocks").mkdir(parents=True, exist_ok=True)
+        return project_dir
 
-                CREATE TABLE IF NOT EXISTS project_blocks (
-                    project_id TEXT NOT NULL,
-                    block_index INTEGER NOT NULL,
-                    text TEXT NOT NULL,
-                    voice TEXT NOT NULL,
-                    cache_key TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    error TEXT,
-                    audio_path TEXT,
-                    duration_ms INTEGER,
-                    sample_rate INTEGER,
-                    start_ms INTEGER,
-                    end_ms INTEGER,
-                    PRIMARY KEY (project_id, block_index)
-                );
+    def _project_file(self, project_id: str):
+        return self._project_dir(project_id) / "project.json"
 
-                CREATE TABLE IF NOT EXISTS cached_blocks (
-                    cache_key TEXT PRIMARY KEY,
-                    text TEXT NOT NULL,
-                    voice TEXT NOT NULL,
-                    language TEXT NOT NULL,
-                    settings_json TEXT NOT NULL,
-                    model_identity TEXT NOT NULL,
-                    audio_path TEXT NOT NULL,
-                    duration_ms INTEGER NOT NULL,
-                    sample_rate INTEGER NOT NULL,
-                    created_at REAL NOT NULL
-                );
-                """
-            )
-            project_columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
-            if "pinned" not in project_columns:
-                conn.execute("ALTER TABLE projects ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+    def _load_project(self, project_id: str):
+        project_file = self.projects_dir / project_id / "project.json"
+        if not project_file.exists():
+            return None
+        return self._read_project_file(project_file)
+
+    def _read_project_file(self, project_file: Path):
+        project = json.loads(project_file.read_text(encoding="utf-8"))
+        project.setdefault("pinned", False)
+        project.setdefault("final_audio_path", None)
+        project.setdefault("download_ready", False)
+        project.setdefault("total_blocks", len(project.get("blocks", [])))
+        project.setdefault("completed_blocks", 0)
+        for index, block in enumerate(project.get("blocks", [])):
+            block.setdefault("index", index)
+            block.setdefault("cache_key", self.build_cache_key(
+                text=block["text"],
+                voice=block["voice"],
+                language=project["language"],
+                settings=project["settings"],
+            ))
+            block.setdefault("error", None)
+            block.setdefault("audio_path", None)
+            block.setdefault("audio_ready", False)
+            block.setdefault("duration_ms", None)
+            block.setdefault("sample_rate", None)
+            block.setdefault("start_ms", None)
+            block.setdefault("end_ms", None)
+        return project
+
+    def _save_project(self, project: dict[str, Any]):
+        project_file = self._project_file(project["id"])
+        project_file.write_text(json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _cleanup_legacy_storage(self):
+        legacy_dir = self.base_dir / "projects-db"
+        if legacy_dir.exists():
+            shutil.rmtree(legacy_dir, ignore_errors=True)
+
+        for project_dir in self.projects_dir.iterdir():
+            if not project_dir.is_dir():
+                continue
+            if not (project_dir / "project.json").exists():
+                shutil.rmtree(project_dir, ignore_errors=True)

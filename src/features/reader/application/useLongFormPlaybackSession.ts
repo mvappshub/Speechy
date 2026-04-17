@@ -50,6 +50,7 @@ export function useLongFormPlaybackSession({
   const desiredChunkRef = useRef(state.selectedChunk);
   const activeChunkRef = useRef<number | null>(null);
   const playTokenRef = useRef(0);
+  const pendingPlayChunkRef = useRef<number | null>(null);
 
   const stopPolling = useCallback(() => {
     pollTokenRef.current += 1;
@@ -68,6 +69,7 @@ export function useLongFormPlaybackSession({
     playTokenRef.current += 1;
     desiredChunkRef.current = state.selectedChunk;
     activeChunkRef.current = null;
+    pendingPlayChunkRef.current = null;
     dispatch(readerActions.setProgress(null));
   }, [dispatch, revokeAudioUrl, state.selectedChunk, stopPolling]);
 
@@ -96,57 +98,75 @@ export function useLongFormPlaybackSession({
     async (blockIndex: number) => {
       const projectId = projectRef.current?.id;
       if (!projectId) return false;
+      if (pendingPlayChunkRef.current !== null) {
+        return pendingPlayChunkRef.current === blockIndex;
+      }
       const blocks = projectRef.current?.blocks ?? [];
       const block = blocks[blockIndex];
       if (!block?.audio_ready) return false;
 
+      pendingPlayChunkRef.current = blockIndex;
       const playToken = ++playTokenRef.current;
-      revokeAudioUrl();
-      const blob = await fetchProjectBlockAudioBlob(projectId, blockIndex);
-      if (playToken !== playTokenRef.current) return false;
+      try {
+        revokeAudioUrl();
+        const blob = await fetchProjectBlockAudioBlob(projectId, blockIndex);
+        if (playToken !== playTokenRef.current) return false;
 
-      const url = URL.createObjectURL(blob);
-      audioUrlRef.current = url;
-      activeChunkRef.current = blockIndex;
-      desiredChunkRef.current = blockIndex;
+        const url = URL.createObjectURL(blob);
+        audioUrlRef.current = url;
+        activeChunkRef.current = blockIndex;
+        desiredChunkRef.current = blockIndex;
 
-      await audioPlayerRef.current.load(url, state.volume, {
-        onEnded: () => {
-          const latestBlocks = projectRef.current?.blocks ?? [];
-          const nextIndex = findNextPlayableBlockIndex(latestBlocks, blockIndex + 1);
-          activeChunkRef.current = null;
+        await audioPlayerRef.current.load(url, state.volume, {
+          onEnded: () => {
+            const latestBlocks = projectRef.current?.blocks ?? [];
+            const nextIndex = findNextPlayableBlockIndex(latestBlocks, blockIndex + 1);
+            activeChunkRef.current = null;
 
-          if (nextIndex >= 0) {
-            desiredChunkRef.current = nextIndex;
-            void playBlockAtIndex(nextIndex);
-            return;
-          }
+            if (nextIndex >= 0) {
+              desiredChunkRef.current = nextIndex;
+              void playBlockAtIndex(nextIndex).catch((error) => {
+                dispatch(
+                  readerActions.setError(
+                    error instanceof Error ? error.message : "Další blok se nepodařilo automaticky přehrát.",
+                  ),
+                );
+                clearRuntime();
+                dispatch(readerActions.setPlaybackState("idle"));
+              });
+              return;
+            }
 
-          if (
-            projectRef.current &&
-            projectRef.current.progress.done >= projectRef.current.progress.total
-          ) {
+            if (
+              projectRef.current &&
+              projectRef.current.progress.done >= projectRef.current.progress.total
+            ) {
+              dispatch(readerActions.setPlaybackState("idle"));
+              return;
+            }
+
+            desiredChunkRef.current = blockIndex + 1;
+            dispatch(readerActions.setPlaybackState("loading"));
+          },
+          onError: () => {
+            dispatch(readerActions.setError("Chyba při přehrávání vygenerovaného bloku."));
+            clearRuntime();
             dispatch(readerActions.setPlaybackState("idle"));
-            return;
-          }
+          },
+          onTimeUpdate: () => {
+            dispatch(readerActions.selectChunk(blockIndex));
+          },
+        });
 
-          desiredChunkRef.current = blockIndex + 1;
-          dispatch(readerActions.setPlaybackState("loading"));
-        },
-        onError: () => {
-          dispatch(readerActions.setError("Chyba při přehrávání vygenerovaného bloku."));
-          clearRuntime();
-          dispatch(readerActions.setPlaybackState("idle"));
-        },
-        onTimeUpdate: () => {
-          dispatch(readerActions.selectChunk(blockIndex));
-        },
-      });
-
-      dispatch(readerActions.selectChunk(blockIndex));
-      await audioPlayerRef.current.play();
-      dispatch(readerActions.setPlaybackState("playing"));
-      return true;
+        dispatch(readerActions.selectChunk(blockIndex));
+        await audioPlayerRef.current.play();
+        dispatch(readerActions.setPlaybackState("playing"));
+        return true;
+      } finally {
+        if (pendingPlayChunkRef.current === blockIndex) {
+          pendingPlayChunkRef.current = null;
+        }
+      }
     },
     [clearRuntime, dispatch, revokeAudioUrl, state.volume],
   );
@@ -162,7 +182,11 @@ export function useLongFormPlaybackSession({
           throw new Error(firstError || "Generování projektu selhalo.");
         }
 
-        if (!audioPlayerRef.current.hasActiveAudio() && playbackStateRef.current !== "paused") {
+        if (
+          pendingPlayChunkRef.current === null &&
+          !audioPlayerRef.current.hasActiveAudio() &&
+          playbackStateRef.current !== "paused"
+        ) {
           const targetIndex = activeChunkRef.current ?? desiredChunkRef.current;
           const nextPlayableIndex = findNextPlayableBlockIndex(project.blocks, targetIndex);
           if (nextPlayableIndex >= 0) {

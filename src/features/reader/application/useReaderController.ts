@@ -68,9 +68,15 @@ export function useReaderController() {
         if (cancelled) return;
         hydratedProjectIdRef.current = state.currentProjectId;
         await playbackSession.onProjectOpen(project);
-        dispatch(readerActions.setBlockMode(true));
+        dispatch(readerActions.setBlockMode(project.blocks.length > 0));
         dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
-      } catch {}
+      } catch {
+        if (cancelled) return;
+        hydratedProjectIdRef.current = null;
+        dispatch(readerActions.setCurrentProject(null));
+        dispatch(readerActions.setBlockMode(false));
+        dispatch(readerActions.setBlockVoices([]));
+      }
     })();
 
     return () => {
@@ -83,7 +89,7 @@ export function useReaderController() {
       const project = typeof projectOrId === "string" ? await fetchProject(projectOrId) : projectOrId;
       hydratedProjectIdRef.current = project.id;
       await playbackSession.onProjectOpen(project);
-      dispatch(readerActions.setBlockMode(true));
+      dispatch(readerActions.setBlockMode(project.blocks.length > 0));
       dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
       await refreshProjects();
     } catch (error) {

@@ -238,3 +238,73 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             await service.wait_for_project(updated["id"])
 
             self.assertEqual(len(service.runtime.block_lengths) - renders_before_voice_change, 1)
+
+    async def test_project_render_writes_block_wavs_into_project_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = self.make_service(temp_dir, max_active_jobs=2, ttl_seconds=60)
+
+            project = service.sync_project(
+                None,
+                "Prvni delsi veta. Druha delsi veta. Treti delsi veta.",
+                self.make_options(),
+                block_voices=["speaker.wav", "speaker2.wav", "speaker.wav"],
+            )
+
+            render_job_id = service.render_project(project["id"])
+            self.assertIsNotNone(render_job_id)
+            await service.wait_for_project(project["id"])
+
+            refreshed = service.get_project(project["id"])
+            project_dir = Path(temp_dir) / "projects" / project["id"]
+            blocks_dir = project_dir / "blocks"
+
+            self.assertTrue(project_dir.exists())
+            self.assertTrue(blocks_dir.exists())
+            self.assertTrue((project_dir / "project.json").exists())
+            self.assertTrue((project_dir / "final.wav").exists())
+            self.assertEqual(len(list(blocks_dir.glob("*.wav"))), len(refreshed["blocks"]))
+            self.assertTrue(all(Path(block["audio_path"]).is_file() for block in refreshed["blocks"]))
+            self.assertTrue(all(str(Path(block["audio_path"]).parent) == str(blocks_dir) for block in refreshed["blocks"]))
+
+    async def test_delete_project_removes_project_directory_and_block_wavs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = self.make_service(temp_dir, max_active_jobs=2, ttl_seconds=60)
+
+            project = service.sync_project(
+                None,
+                "Prvni delsi veta. Druha delsi veta.",
+                self.make_options(),
+            )
+            render_job_id = service.render_project(project["id"])
+            self.assertIsNotNone(render_job_id)
+            await service.wait_for_project(project["id"])
+
+            project_dir = Path(temp_dir) / "projects" / project["id"]
+            self.assertTrue(project_dir.exists())
+
+            service.delete_project(project["id"])
+
+            self.assertFalse(project_dir.exists())
+            with self.assertRaises(KeyError):
+                service.get_project(project["id"])
+
+    async def test_service_startup_cleans_legacy_storage_and_orphan_project_dirs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            legacy_dir = base / "projects-db"
+            orphan_dir = base / "projects" / "orphan-project"
+            valid_dir = base / "projects" / "valid-project"
+            (legacy_dir / "projects").mkdir(parents=True, exist_ok=True)
+            orphan_dir.mkdir(parents=True, exist_ok=True)
+            valid_dir.mkdir(parents=True, exist_ok=True)
+            (valid_dir / "project.json").write_text(
+                '{"id":"valid-project","title":"Valid","text":"","language":"cs","pinned":false,"selected_voice":"speaker.wav","settings":{"speed":1.0},"created_at":1,"updated_at":1,"final_audio_path":null,"download_ready":false,"total_blocks":0,"completed_blocks":0,"blocks":[]}',
+                encoding="utf-8",
+            )
+
+            service = self.make_service(temp_dir, max_active_jobs=2, ttl_seconds=60)
+
+            self.assertFalse(legacy_dir.exists())
+            self.assertFalse(orphan_dir.exists())
+            self.assertTrue(valid_dir.exists())
+            self.assertEqual(service.get_project("valid-project")["id"], "valid-project")
