@@ -115,3 +115,7 @@ npm run start
 - Backend při prvním startu inicializuje OmniVoice runtime, takže start může trvat déle.
 - První render může stáhnout OmniVoice/ASR modely z Hugging Face. Bez `HF_TOKEN` funguje i anonymní přístup, ale může být pomalejší.
 - Vývojové logy se zapisují do `dev.log`, produkční start do `server.log`.
+
+## Test pull request
+
+Tato drobná změna slouží jen k ověření, že se na repozitáři spustí CodeRabbit review.
