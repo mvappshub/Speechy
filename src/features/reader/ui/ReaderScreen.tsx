@@ -114,14 +114,7 @@ export function ReaderScreen() {
           playbackState={controller.state.playbackState}
           progress={controller.state.progress}
           loadingLabel={controller.playbackStatus?.label ?? null}
-          disabled={
-            controller.state.serverStatus !== "online" ||
-            !controller.state.text.trim() ||
-            !controller.state.isBlockMode ||
-            !controller.chunks.length
-          }
           downloadUrl={controller.downloadUrl}
-          onPlay={() => void controller.onPlay()}
           onPause={controller.onPause}
           onResume={() => void controller.onResume()}
           onStop={controller.onStop}
