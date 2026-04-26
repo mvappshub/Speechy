@@ -6,36 +6,70 @@ import process from "node:process";
 
 const rootDir = process.cwd();
 const backendDir = path.join(rootDir, "tts-server");
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const nextBin = path.join(rootDir, "node_modules", "next", "dist", "bin", "next");
 const pythonCommand = process.platform === "win32" ? "python" : "python3";
 
 const urls = {
   backend: "http://localhost:8000",
-  frontend: "http://localhost:3000",
   health: "http://localhost:8000/api/health",
 };
 
 const children = [];
 let shuttingDown = false;
 
-function checkPortAvailable(port, host = "0.0.0.0") {
+function checkPortOnHost(port, host) {
   return new Promise((resolve) => {
-    const server = net.createServer();
+    const socket = net.createConnection({ port, host });
+    let settled = false;
 
-    server.once("error", (error) => {
-      if (error && typeof error === "object" && "code" in error && error.code === "EADDRINUSE") {
-        resolve(false);
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+
+    socket.setTimeout(500);
+    socket.once("connect", () => done(false));
+    socket.once("timeout", () => done(true));
+    socket.once("error", (error) => {
+      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
+        done(true);
         return;
       }
-      resolve(false);
+      if (host === "::1") {
+        done(true);
+        return;
+      }
+      done(false);
     });
-
-    server.once("listening", () => {
-      server.close(() => resolve(true));
-    });
-
-    server.listen(port, host);
   });
+}
+
+async function checkPortAvailable(port) {
+  const [ipv4Available, ipv6Available] = await Promise.all([
+    checkPortOnHost(port, "0.0.0.0"),
+    checkPortOnHost(port, "::"),
+  ]);
+  return ipv4Available && ipv6Available;
+}
+
+async function findFreePort(startPort, endPort = startPort + 50) {
+  for (let port = startPort; port <= endPort; port += 1) {
+    // Keep the search narrow so dev-up still fails fast if the range is exhausted.
+    // We only need a nearby free port for local development.
+    if (await checkPortAvailable(port)) return port;
+  }
+  return null;
+}
+
+async function isHealthy(url) {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function pipeOutput(label, stream) {
@@ -96,33 +130,52 @@ function startProcess({ label, command, args, cwd }) {
 
 console.log("Starting local development stack");
 console.log(`Backend URL: ${urls.backend}`);
-console.log(`Frontend URL: ${urls.frontend}`);
+console.log("Frontend URL: will be selected automatically starting at http://localhost:3000");
 console.log(`Health check URL: ${urls.health}`);
 console.log("Processes will stop together if one crashes.");
 
-const [backendPortAvailable, frontendPortAvailable] = await Promise.all([
-  checkPortAvailable(8000),
-  checkPortAvailable(3000),
-]);
+const backendPortAvailable = await checkPortAvailable(8000);
+const backendAlreadyRunning = !backendPortAvailable && (await isHealthy(urls.health));
 
-if (!backendPortAvailable || !frontendPortAvailable) {
-  console.error("Cannot start local development stack because required ports are already in use.");
-  if (!backendPortAvailable) console.error("Port 8000 is already in use. Stop the existing backend before retrying.");
-  if (!frontendPortAvailable) console.error("Port 3000 is already in use. Stop the existing frontend before retrying.");
+if (!backendPortAvailable && !backendAlreadyRunning) {
+  console.error("Cannot start the backend because port 8000 is already in use by another process.");
+  console.error("Stop the existing service on port 8000 or set up a free backend port before retrying.");
   process.exit(1);
 }
 
-startProcess({
-  label: "backend",
-  command: pythonCommand,
-  args: ["server.py"],
-  cwd: backendDir,
-});
+if (!backendAlreadyRunning) {
+  startProcess({
+    label: "backend",
+    command: pythonCommand,
+    args: ["server.py"],
+    cwd: backendDir,
+  });
+} else {
+  console.log("Reusing the backend already running on port 8000.");
+}
+
+const frontendPort = (await findFreePort(3000)) ?? null;
+if (!frontendPort) {
+  console.error("Cannot find a free frontend port starting from 3000.");
+  process.exit(1);
+}
+
+const frontendUrl = `http://localhost:${frontendPort}`;
+console.log(`Frontend will use: ${frontendUrl}`);
 
 startProcess({
   label: "frontend",
-  command: npmCommand,
-  args: ["run", "dev"],
+  command: process.execPath,
+  args: [
+    "scripts/run-with-log.mjs",
+    "dev.log",
+    process.execPath,
+    nextBin,
+    "dev",
+    "--turbopack",
+    "-p",
+    String(frontendPort),
+  ],
   cwd: rootDir,
 });
 

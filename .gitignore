@@ -45,6 +45,8 @@ local-*
 .z-ai-config
 *.log
 dev.log
+dev-up.err
+dev-up.out
 dev.out.log
 test
 prompt
@@ -69,3 +71,5 @@ tts-server/infrastructure/__pycache__
 tts-server/presentation/__pycache__
 .playwright-mcp/
 tts-server/tmp-jobs-debug/
+.codex
+.agents/

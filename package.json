@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/run-with-log.mjs dev.log next dev --webpack -p 3000",
+    "dev": "node scripts/run-with-log.mjs dev.log next dev --turbopack -p 3000",
     "build": "next build && node -e \"const fs=require('fs');fs.mkdirSync('.next/standalone/.next',{recursive:true});fs.cpSync('.next/static','.next/standalone/.next/static',{recursive:true});if(fs.existsSync('public'))fs.cpSync('public','.next/standalone/public',{recursive:true});\"",
     "start": "node scripts/run-with-log.mjs server.log node .next/standalone/server.js",
     "lint": "eslint . && node scripts/check-architecture.mjs && node scripts/check-governance.mjs",

@@ -57,7 +57,7 @@ Preferovaný způsob:
 node scripts/dev-up.mjs
 ```
 
-Skript spustí backend na `8000`, frontend na `3000`, vypíše URL a ukončí oba procesy, pokud jeden z nich spadne.
+Skript spustí backend na `8000` a frontend na prvním volném portu od `3000` výš, vypíše přesnou URL a ukončí oba procesy, pokud jeden z nich spadne.
 
 Ruční spuštění:
 
@@ -68,13 +68,15 @@ cd tts-server
 python server.py
 ```
 
-2. Ve druhém terminálu spusť frontend na portu `3000`:
+2. Ve druhém terminálu spusť frontend:
 
 ```bash
 npm run dev
 ```
 
-3. Otevři aplikaci na `http://localhost:3000`.
+Frontend v tomto repu teď běží přes Next.js dev server s Turbopackem.
+
+3. Otevři aplikaci na URL, kterou frontend vypíše v terminálu.
 
 Pokud backend neběží na `http://localhost:8000`, nastav před spuštěním frontendu:
 
