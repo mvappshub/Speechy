@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { PlaybackChunk } from "@/lib/chunking";
 import { clampChunkIndex, findChunkIndexAtCursor } from "../domain/chunkSelection";
 import { findNextPlayableBlockIndex } from "../domain/playback";
+import { getReaderPlaybackStatus } from "../domain/playbackStatus";
 import type { ProjectSnapshot } from "../domain/types";
 import { canStartPlayback, getStageAfterPlaybackStops, shouldAutoPlayChunkOnClick } from "../domain/workflow";
 import { createAudioPlayer } from "../infrastructure/audioPlayer";
@@ -597,37 +598,12 @@ export function useLongFormPlaybackSession({
   return {
     textareaRef,
     currentChunkIndex: state.selectedChunk,
-    playbackStatus:
-      state.workflowStage !== "playing"
-        ? null
-        : state.playbackState !== "loading"
-        ? projectRef.current &&
-          projectRef.current.status !== "error" &&
-          projectRef.current.progress.done < projectRef.current.progress.total
-          ? {
-              kind: "generating" as const,
-              label: `Generuji ${projectRef.current.progress.done}/${projectRef.current.progress.total}`,
-            }
-          : null
-        : projectRef.current?.status === "error"
-          ? null
-          : projectRef.current?.blocks[desiredChunkRef.current]?.audio_ready
-          ? {
-              kind: "loading-ready-block" as const,
-              label:
-                desiredChunkRef.current !== latestSelectedChunkRef.current || activeChunkRef.current !== null
-                  ? "Načítám další hotový blok"
-                  : "Načítám připravený blok",
-            }
-          : projectRef.current
-            ? {
-                kind: "generating" as const,
-                label: `Generuji ${projectRef.current.progress.done}/${projectRef.current.progress.total}`,
-              }
-            : {
-                kind: "generating" as const,
-                label: "Generuji",
-              },
+    playbackStatus: getReaderPlaybackStatus({
+      workflowStage: state.workflowStage,
+      playbackState: state.playbackState,
+      project: projectRef.current,
+      desiredChunkIndex: desiredChunkRef.current,
+    }),
     playbackChunks:
       projectRef.current?.blocks.map((block) => ({
         index: block.index,

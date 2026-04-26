@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Copy, LoaderCircle, ScissorsLineDashed, Sparkles, Trash2 } from "lucide-react";
+import { Copy, ScissorsLineDashed, Sparkles, Trash2 } from "lucide-react";
 import { canStartPlayback } from "../domain/workflow";
 import { useReaderController } from "../application/useReaderController";
 import { ErrorBanner } from "./ErrorBanner";
@@ -17,12 +17,6 @@ export function ReaderScreen() {
   const isPlaybackVisible = controller.state.workflowStage !== "editing";
   const canPlay = canStartPlayback(controller.state.workflowStage, controller.chunks.length);
   const isWorkflowLocked = controller.state.workflowStage === "playing";
-  const statusLabel =
-    controller.state.workflowStage === "playing" && controller.state.playbackState === "loading"
-      ? controller.playbackStatus?.label ?? null
-      : controller.state.workflowStage === "playing" && controller.playbackStatus?.kind === "generating"
-        ? controller.playbackStatus.label
-        : null;
 
   return (
     <div className="min-h-screen w-full bg-white font-sans">
@@ -71,14 +65,7 @@ export function ReaderScreen() {
             </button>
           </div>
 
-          <div className="flex min-h-5 items-center gap-2 text-gray-500">
-            {statusLabel ? (
-              <>
-                <LoaderCircle className="h-3 w-3 animate-spin" />
-                <span>{statusLabel}</span>
-              </>
-            ) : null}
-          </div>
+          <div className="min-h-5" />
         </div>
 
         <ErrorBanner error={controller.state.error} onDismiss={controller.onDismissError} />
@@ -115,8 +102,7 @@ export function ReaderScreen() {
         <PlaybackControls
           playbackState={controller.state.playbackState}
           workflowStage={controller.state.workflowStage}
-          progress={controller.state.progress}
-          loadingLabel={controller.playbackStatus?.label ?? null}
+          statusLabel={controller.playbackStatus?.label ?? null}
           downloadUrl={controller.downloadUrl}
           canPlay={canPlay}
           onPlay={() => void controller.onPlay()}

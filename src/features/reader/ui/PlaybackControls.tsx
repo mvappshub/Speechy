@@ -1,11 +1,11 @@
-import type { PlaybackState, ReaderProgress } from "../domain/types";
+import { LoaderCircle } from "lucide-react";
+import type { PlaybackState } from "../domain/types";
 import type { ReaderWorkflowStage } from "../domain/workflow";
 
 export function PlaybackControls({
   playbackState,
   workflowStage,
-  progress,
-  loadingLabel,
+  statusLabel,
   downloadUrl,
   canPlay,
   onPlay,
@@ -15,8 +15,7 @@ export function PlaybackControls({
 }: {
   playbackState: PlaybackState;
   workflowStage: ReaderWorkflowStage;
-  progress: ReaderProgress | null;
-  loadingLabel?: string | null;
+  statusLabel?: string | null;
   downloadUrl: string | null;
   canPlay: boolean;
   onPlay: () => void;
@@ -35,8 +34,14 @@ export function PlaybackControls({
       {playbackState === "loading" ? (
         <button disabled className="frameless-action frameless-action--strong frameless-focus animate-pulse">
           <span>…</span>
-          <span>{loadingLabel ?? (progress ? `Generuji ${progress.done}/${progress.total}` : "Generuji")}</span>
+          <span>{statusLabel ?? "Připravuji přehrávání"}</span>
         </button>
+      ) : null}
+      {playbackState !== "loading" && statusLabel ? (
+        <div className="inline-flex items-center gap-2 text-gray-400">
+          <LoaderCircle className="h-3 w-3 animate-spin" />
+          <span>{statusLabel}</span>
+        </div>
       ) : null}
       {playbackState === "playing" ? (
         <button
