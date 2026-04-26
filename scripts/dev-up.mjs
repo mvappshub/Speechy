@@ -104,7 +104,7 @@ function startProcess({ label, command, args, cwd }) {
   const child = spawn(command, args, {
     cwd,
     env: process.env,
-    shell: process.platform === "win32",
+    shell: false,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
