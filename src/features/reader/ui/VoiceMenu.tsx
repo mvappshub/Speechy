@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Menu } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
+import { Menu, Upload } from "lucide-react";
 import type { Voice } from "../domain/types";
 
 function formatVoiceLabel(value: string | undefined) {
@@ -13,6 +13,10 @@ export function VoiceMenu({
   voices,
   disabled,
   onVoiceChange,
+  onUploadClick,
+  uploading = false,
+  open,
+  onOpenChange,
   triggerLabel,
   title,
   align = "left",
@@ -21,53 +25,83 @@ export function VoiceMenu({
   voices: Voice[];
   disabled: boolean;
   onVoiceChange: (value: string) => void;
+  onUploadClick?: () => void;
+  uploading?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   triggerLabel?: string;
   title?: string;
   align?: "left" | "right";
 }) {
-  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const activeVoice = useMemo(
     () => voices.find((voice) => voice.name === selectedVoice) ?? voices[0] ?? null,
     [selectedVoice, voices],
   );
 
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        onOpenChange(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [onOpenChange, open]);
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
-        disabled={disabled || voices.length === 0}
-        className="inline-flex items-center gap-2 bg-black px-3 py-2 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+        onClick={() => onOpenChange(!open)}
+        disabled={disabled}
+        aria-expanded={open}
+        className="frameless-action frameless-focus w-full justify-end gap-3 text-right"
         title={title}
       >
-        <Menu className="h-3.5 w-3.5" />
-        <span>{triggerLabel ?? formatVoiceLabel(activeVoice?.name)}</span>
+        <Menu className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{triggerLabel ?? formatVoiceLabel(activeVoice?.name)}</span>
       </button>
 
       {open ? (
         <div
-          className={`absolute top-full z-10 mt-2 min-w-[14rem] bg-white p-1 shadow-lg ${
+          className={`reader-dropdown absolute top-full z-20 mt-2 min-w-[16rem] ${
             align === "right" ? "right-0" : "left-0"
           }`}
         >
-          {voices.map((voice) => (
-            <button
-              key={voice.name}
-              type="button"
-              onClick={() => {
-                onVoiceChange(voice.name);
-                setOpen(false);
-              }}
-              className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
-                voice.name === selectedVoice ? "bg-black text-white" : "text-black hover:bg-gray-100"
-              }`}
-            >
-              <span>{formatVoiceLabel(voice.name)}</span>
-              <span className="text-[10px] uppercase tracking-[0.2em]">
-                {voice.is_default ? "Výchozí" : voice.has_transcript ? "TXT" : "WAV"}
-              </span>
-            </button>
-          ))}
+          <div className="reader-dropdown-list">
+            {voices.map((voice) => (
+              <button
+                key={voice.name}
+                type="button"
+                onClick={() => {
+                  onVoiceChange(voice.name);
+                  onOpenChange(false);
+                }}
+                data-active={voice.name === selectedVoice}
+                className="reader-dropdown-item frameless-focus"
+              >
+                <span className="truncate">{formatVoiceLabel(voice.name)}</span>
+                {voice.name === selectedVoice ? <span className="text-[10px] uppercase tracking-[0.2em]">Aktivní</span> : null}
+              </button>
+            ))}
+            {onUploadClick ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenChange(false);
+                  onUploadClick();
+                }}
+                className="reader-dropdown-item frameless-focus border-t border-black/10"
+              >
+                <span>{uploading ? "Nahrávám hlas..." : "Přidat hlas..."}</span>
+                <Upload className="h-3.5 w-3.5 shrink-0" />
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

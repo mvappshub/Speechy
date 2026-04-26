@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Upload } from "lucide-react";
 import type { Voice } from "../domain/types";
 import { VoiceMenu } from "./VoiceMenu";
@@ -17,6 +18,8 @@ export function VoiceSelector({
   onVoiceChange: (value: string) => void;
   onUploadClick: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
     <div className="relative flex items-center gap-2">
       <VoiceMenu
@@ -24,6 +27,8 @@ export function VoiceSelector({
         voices={voices}
         disabled={disabled}
         onVoiceChange={onVoiceChange}
+        open={open}
+        onOpenChange={setOpen}
         title="Vybrat hlas"
       />
 
@@ -31,7 +36,7 @@ export function VoiceSelector({
         type="button"
         onClick={onUploadClick}
         disabled={disabled || uploading}
-        className="inline-flex items-center gap-1 bg-black px-3 py-2 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+        className="frameless-action frameless-focus"
       >
         <Upload className="h-3 w-3" />
         <span>{uploading ? "Nahrávám" : "Přidat hlas"}</span>

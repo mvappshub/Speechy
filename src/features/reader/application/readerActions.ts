@@ -1,4 +1,5 @@
 import type { Health, JobStatus, ProjectSummary, ReaderProgress, ServerStatus, Voice } from "../domain/types";
+import type { ReaderWorkflowStage } from "../domain/workflow";
 
 export type ReaderAction =
   | { type: "settings/loaded"; payload: { text: string; speed: number; volume: number; textScale: number; selectedVoice: string; currentProjectId: string | null } }
@@ -15,6 +16,7 @@ export type ReaderAction =
   | { type: "voices/set"; payload: Voice[] }
   | { type: "server/status"; payload: { status: ServerStatus; health: Health | null } }
   | { type: "playback/state"; payload: import("../domain/types").PlaybackState }
+  | { type: "workflow/stage"; payload: ReaderWorkflowStage }
   | { type: "chunk/select"; payload: number }
   | { type: "progress/set"; payload: ReaderProgress | null }
   | { type: "error/set"; payload: string | null }
@@ -40,6 +42,7 @@ export const readerActions = {
     ({ type: "server/status", payload: { status, health } }) as const,
   setPlaybackState: (payload: import("../domain/types").PlaybackState) =>
     ({ type: "playback/state", payload }) as const,
+  setWorkflowStage: (payload: ReaderWorkflowStage) => ({ type: "workflow/stage", payload }) as const,
   selectChunk: (payload: number) => ({ type: "chunk/select", payload }) as const,
   setProgress: (payload: ReaderProgress | null) => ({ type: "progress/set", payload }) as const,
   setError: (payload: string | null) => ({ type: "error/set", payload }) as const,

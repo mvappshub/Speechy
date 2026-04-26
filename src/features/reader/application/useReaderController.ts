@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { splitTextIntoParagraphChunks } from "@/lib/chunking";
 import type { ProjectSnapshot } from "../domain/types";
 import { cleanReaderText } from "../domain/textCleaning";
+import { getWorkflowStageForBlocks } from "../domain/workflow";
 import { copyToClipboard } from "../infrastructure/clipboard";
 import { createProject, deleteProject, fetchProject, fetchProjects, updateProject } from "../infrastructure/ttsApi";
 import { initialReaderState, readerReducer } from "./readerReducer";
@@ -33,7 +34,7 @@ export function useReaderController() {
     refreshVoices,
     refreshProjects,
   });
-  const chunks = state.isBlockMode ? playbackSession.playbackChunks ?? paragraphChunks : [];
+  const chunks = state.workflowStage !== "editing" ? playbackSession.playbackChunks ?? paragraphChunks : [];
 
   useEffect(() => {
     if (!chunks.length && state.selectedChunk !== 0) {
@@ -74,12 +75,14 @@ export function useReaderController() {
         hydratedProjectIdRef.current = state.currentProjectId;
         await playbackSession.onProjectOpen(project);
         dispatch(readerActions.setBlockMode(project.blocks.length > 0));
+        dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(project.blocks.length)));
         dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
       } catch {
         if (cancelled) return;
         hydratedProjectIdRef.current = null;
         dispatch(readerActions.setCurrentProject(null));
         dispatch(readerActions.setBlockMode(false));
+        dispatch(readerActions.setWorkflowStage("editing"));
         dispatch(readerActions.setBlockVoices([]));
       }
     })();
@@ -102,6 +105,7 @@ export function useReaderController() {
       hydratedProjectIdRef.current = project.id;
       await playbackSession.onProjectOpen(project);
       dispatch(readerActions.setBlockMode(project.blocks.length > 0));
+      dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(project.blocks.length)));
       dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
       await refreshProjects();
     } catch (error) {
@@ -119,6 +123,8 @@ export function useReaderController() {
     onTextChange: (value: string) => {
       dispatch(readerActions.setText(value));
       dispatch(readerActions.setBlockMode(false));
+      dispatch(readerActions.setBlockVoices([]));
+      dispatch(readerActions.setWorkflowStage("editing"));
       dispatch(readerActions.setProgress(null));
     },
     onSpeedChange: (value: number) => dispatch(readerActions.setSpeed(value)),
@@ -148,6 +154,7 @@ export function useReaderController() {
         (currentVoice, blockIndex) => (blockIndex === index ? voice : currentVoice),
       );
       dispatch(readerActions.setBlockVoices(nextBlockVoices));
+      dispatch(readerActions.setWorkflowStage("assigning"));
       if (state.isBlockMode) {
         void playbackSession.prepareProject({
           projectId: state.currentProjectId,
@@ -165,6 +172,7 @@ export function useReaderController() {
         initialRestoreDoneRef.current = true;
         dispatch(readerActions.setError(null));
         dispatch(readerActions.setBlockMode(true));
+        dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(paragraphChunks.length)));
         dispatch(readerActions.selectChunk(0));
         const nextBlockVoices = resolveBlockVoices(state.blockVoices, state.selectedVoice);
         dispatch(readerActions.setBlockVoices(nextBlockVoices));
@@ -189,13 +197,22 @@ export function useReaderController() {
     onResume: playbackSession.onResume,
     onStop: playbackSession.onStop,
     onDismissError: () => dispatch(readerActions.setError(null)),
-    onCleanText: () => dispatch(readerActions.setText(cleanReaderText(state.text))),
+    onCleanText: () => {
+      dispatch(readerActions.setText(cleanReaderText(state.text)));
+      dispatch(readerActions.setBlockMode(false));
+      dispatch(readerActions.setBlockVoices([]));
+      dispatch(readerActions.setWorkflowStage("editing"));
+      dispatch(readerActions.setProgress(null));
+    },
     onClear: () => {
       hydratedProjectIdRef.current = null;
+      playbackSession.onStop();
       dispatch(readerActions.setCurrentProject(null));
       dispatch(readerActions.setBlockMode(false));
+      dispatch(readerActions.setWorkflowStage("editing"));
       dispatch(readerActions.setText(""));
-      playbackSession.onStop();
+      dispatch(readerActions.setBlockVoices([]));
+      dispatch(readerActions.setProgress(null));
     },
     onEditorDoubleClick: playbackSession.onEditorDoubleClick,
     onChunkClick: playbackSession.onChunkClick,
@@ -208,6 +225,7 @@ export function useReaderController() {
         hydratedProjectIdRef.current = project.id;
         await playbackSession.onProjectOpen(project);
         dispatch(readerActions.setBlockMode(false));
+        dispatch(readerActions.setWorkflowStage("editing"));
         dispatch(readerActions.setBlockVoices([]));
         await refreshProjects();
       } catch (error) {
@@ -225,6 +243,7 @@ export function useReaderController() {
           hydratedProjectIdRef.current = project.id;
           await playbackSession.onProjectOpen(project);
           dispatch(readerActions.setBlockMode(project.blocks.length > 0));
+          dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(project.blocks.length)));
           dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
         }
       } catch (error) {
@@ -249,6 +268,7 @@ export function useReaderController() {
           dispatch(readerActions.setCurrentProject(null));
           dispatch(readerActions.setText(""));
           dispatch(readerActions.setBlockMode(false));
+          dispatch(readerActions.setWorkflowStage("editing"));
           dispatch(readerActions.setBlockVoices([]));
           dispatch(readerActions.setProgress(null));
         }
@@ -257,6 +277,32 @@ export function useReaderController() {
         dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo smazat."));
       }
     },
-    onVoiceUpload: playbackSession.onVoiceUpload,
+    onBlockVoiceUpload: async (index: number, file: File) => {
+      try {
+        dispatch(readerActions.setError(null));
+        const uploadedVoice = await playbackSession.onVoiceUpload(file);
+        if (!uploadedVoice) return;
+
+        const nextBlockVoices = resolveBlockVoices(state.blockVoices, state.selectedVoice).map(
+          (currentVoice, blockIndex) => (blockIndex === index ? uploadedVoice : currentVoice),
+        );
+
+        dispatch(readerActions.setBlockVoices(nextBlockVoices));
+        dispatch(readerActions.setWorkflowStage("assigning"));
+
+        if (state.isBlockMode) {
+          await playbackSession.prepareProject({
+            projectId: state.currentProjectId,
+            text: state.text,
+            voice: state.selectedVoice,
+            speed: state.speed,
+            blocks: paragraphChunks,
+            blockVoices: nextBlockVoices,
+          });
+        }
+      } catch (error) {
+        dispatch(readerActions.setError(error instanceof Error ? error.message : "Hlas se nepodařilo nahrát."));
+      }
+    },
   };
 }

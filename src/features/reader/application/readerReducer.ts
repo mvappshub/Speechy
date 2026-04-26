@@ -1,10 +1,12 @@
 import { clampChunkIndex } from "../domain/chunkSelection";
 import type { Health, PlaybackState, ProjectSummary, ReaderProgress, ServerStatus, Voice } from "../domain/types";
+import type { ReaderWorkflowStage } from "../domain/workflow";
 import type { ReaderAction } from "./readerActions";
 
 export type ReaderState = {
   text: string;
   playbackState: PlaybackState;
+  workflowStage: ReaderWorkflowStage;
   serverStatus: ServerStatus;
   health: Health | null;
   error: string | null;
@@ -25,6 +27,7 @@ export type ReaderState = {
 export const initialReaderState: ReaderState = {
   text: "Ahoj. Napiš cokoliv a já to přečtu pomocí OmniVoice.",
   playbackState: "idle",
+  workflowStage: "editing",
   serverStatus: "checking",
   health: null,
   error: null,
@@ -86,6 +89,8 @@ export function readerReducer(state: ReaderState, action: ReaderAction): ReaderS
       return { ...state, serverStatus: action.payload.status, health: action.payload.health };
     case "playback/state":
       return { ...state, playbackState: action.payload };
+    case "workflow/stage":
+      return { ...state, workflowStage: action.payload };
     case "chunk/select":
       return { ...state, selectedChunk: Math.max(action.payload, 0) };
     case "progress/set":

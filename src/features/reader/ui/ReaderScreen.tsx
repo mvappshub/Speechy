@@ -1,23 +1,26 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Copy, LoaderCircle, ScissorsLineDashed, Sparkles, Trash2 } from "lucide-react";
+import { canStartPlayback } from "../domain/workflow";
 import { useReaderController } from "../application/useReaderController";
 import { ErrorBanner } from "./ErrorBanner";
 import { PlaybackControls } from "./PlaybackControls";
 import { PlaybackView } from "./PlaybackView";
 import { ProjectSelector } from "./ProjectSelector";
 import { TextEditor } from "./TextEditor";
-import { VoiceSelector } from "./VoiceSelector";
 
 export function ReaderScreen() {
   const controller = useReaderController();
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const isPlaybackVisible = controller.state.isBlockMode;
+  const [uploadingBlockIndex, setUploadingBlockIndex] = useState<number | null>(null);
+  const isPlaybackVisible = controller.state.workflowStage !== "editing";
+  const canPlay = canStartPlayback(controller.state.workflowStage, controller.chunks.length);
+  const isWorkflowLocked = controller.state.workflowStage === "playing";
   const statusLabel =
-    controller.state.playbackState === "loading"
+    controller.state.workflowStage === "playing" && controller.state.playbackState === "loading"
       ? controller.playbackStatus?.label ?? null
-      : controller.playbackStatus?.kind === "generating"
+      : controller.state.workflowStage === "playing" && controller.playbackStatus?.kind === "generating"
         ? controller.playbackStatus.label
         : null;
 
@@ -37,14 +40,15 @@ export function ReaderScreen() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={controller.onCleanText}
-              className="flex items-center gap-1 text-inherit transition-colors hover:text-black"
+              disabled={isWorkflowLocked}
+              className="flex items-center gap-1 text-inherit transition-colors hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Sparkles className="h-3 w-3" />
               Vyčistit text
             </button>
             <button
               onClick={() => void controller.onSplitBlocks()}
-              disabled={!controller.state.text.trim()}
+              disabled={!controller.state.text.trim() || isWorkflowLocked}
               className="flex items-center gap-1 text-inherit transition-colors hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ScissorsLineDashed className="h-3 w-3" />
@@ -59,19 +63,12 @@ export function ReaderScreen() {
             </button>
             <button
               onClick={controller.onClear}
-              className="flex items-center gap-1 text-inherit transition-colors hover:text-red-500"
+              disabled={isWorkflowLocked}
+              className="flex items-center gap-1 text-inherit transition-colors hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Trash2 className="h-3 w-3" />
               Smazat vše
             </button>
-            <VoiceSelector
-              selectedVoice={controller.state.selectedVoice}
-              voices={controller.state.voices}
-              disabled={controller.state.playbackState === "playing" || controller.state.playbackState === "paused"}
-              uploading={controller.state.uploading}
-              onVoiceChange={controller.onVoiceChange}
-              onUploadClick={() => fileRef.current?.click()}
-            />
           </div>
 
           <div className="flex min-h-5 items-center gap-2 text-gray-500">
@@ -94,9 +91,14 @@ export function ReaderScreen() {
               textScale={controller.state.textScale}
               voices={controller.state.voices}
               blockVoices={controller.state.blockVoices}
-              canAssignVoice={controller.state.isBlockMode && controller.state.playbackState !== "loading"}
+              uploading={controller.state.uploading}
+              canAssignVoice={controller.state.workflowStage === "assigning"}
               onChunkClick={controller.onChunkClick}
               onBlockVoiceChange={controller.onBlockVoiceChange}
+              onBlockVoiceUpload={(index) => {
+                setUploadingBlockIndex(index);
+                fileRef.current?.click();
+              }}
             />
           ) : (
             <TextEditor
@@ -112,9 +114,12 @@ export function ReaderScreen() {
 
         <PlaybackControls
           playbackState={controller.state.playbackState}
+          workflowStage={controller.state.workflowStage}
           progress={controller.state.progress}
           loadingLabel={controller.playbackStatus?.label ?? null}
           downloadUrl={controller.downloadUrl}
+          canPlay={canPlay}
+          onPlay={() => void controller.onPlay()}
           onPause={controller.onPause}
           onResume={() => void controller.onResume()}
           onStop={controller.onStop}
@@ -127,7 +132,10 @@ export function ReaderScreen() {
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];
-            if (file) void controller.onVoiceUpload(file);
+            if (file && uploadingBlockIndex !== null) {
+              void controller.onBlockVoiceUpload(uploadingBlockIndex, file);
+            }
+            setUploadingBlockIndex(null);
             event.target.value = "";
           }}
         />

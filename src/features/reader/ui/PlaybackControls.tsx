@@ -1,29 +1,39 @@
 import type { PlaybackState, ReaderProgress } from "../domain/types";
+import type { ReaderWorkflowStage } from "../domain/workflow";
 
 export function PlaybackControls({
   playbackState,
+  workflowStage,
   progress,
   loadingLabel,
   downloadUrl,
+  canPlay,
+  onPlay,
   onPause,
   onResume,
   onStop,
 }: {
   playbackState: PlaybackState;
+  workflowStage: ReaderWorkflowStage;
   progress: ReaderProgress | null;
   loadingLabel?: string | null;
   downloadUrl: string | null;
+  canPlay: boolean;
+  onPlay: () => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
 }) {
   return (
     <div className="mt-6 flex flex-wrap items-center gap-4 pt-2 text-[10px] font-medium uppercase tracking-[0.2em] text-gray-400">
+      {workflowStage === "assigning" && playbackState === "idle" ? (
+        <button onClick={onPlay} disabled={!canPlay} className="frameless-action frameless-action--strong frameless-focus">
+          <span>▶</span>
+          <span>Přehrát</span>
+        </button>
+      ) : null}
       {playbackState === "loading" ? (
-        <button
-          disabled
-          className="inline-flex items-center gap-1 bg-black px-3 py-2 text-white opacity-70"
-        >
+        <button disabled className="frameless-action frameless-action--strong frameless-focus animate-pulse">
           <span>…</span>
           <span>{loadingLabel ?? (progress ? `Generuji ${progress.done}/${progress.total}` : "Generuji")}</span>
         </button>
@@ -31,7 +41,7 @@ export function PlaybackControls({
       {playbackState === "playing" ? (
         <button
           onClick={onPause}
-          className="inline-flex items-center gap-1 bg-black px-3 py-2 text-white transition-opacity hover:opacity-85"
+          className="frameless-action frameless-action--strong frameless-focus"
         >
           <span>❚❚</span>
           <span>Pozastavit</span>
@@ -40,7 +50,7 @@ export function PlaybackControls({
       {playbackState === "paused" ? (
         <button
           onClick={onResume}
-          className="inline-flex items-center gap-1 bg-black px-3 py-2 text-white transition-opacity hover:opacity-85"
+          className="frameless-action frameless-action--strong frameless-focus"
         >
           <span>▶</span>
           <span>Pokračovat</span>
@@ -49,7 +59,7 @@ export function PlaybackControls({
       {playbackState !== "idle" ? (
         <button
           onClick={onStop}
-          className="inline-flex items-center gap-1 bg-black px-3 py-2 text-white transition-opacity hover:opacity-85"
+          className="frameless-action frameless-focus"
         >
           <span>■</span>
           <span>Zastavit</span>
@@ -58,7 +68,7 @@ export function PlaybackControls({
       {downloadUrl && playbackState !== "loading" ? (
         <a
           href={downloadUrl}
-          className="inline-flex items-center gap-1 bg-black px-3 py-2 text-white transition-opacity hover:opacity-85"
+          className="frameless-action frameless-focus"
         >
           <span>↓</span>
           <span>Stáhnout WAV</span>

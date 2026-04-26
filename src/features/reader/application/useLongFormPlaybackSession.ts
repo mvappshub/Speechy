@@ -3,6 +3,7 @@ import type { PlaybackChunk } from "@/lib/chunking";
 import { clampChunkIndex, findChunkIndexAtCursor } from "../domain/chunkSelection";
 import { findNextPlayableBlockIndex } from "../domain/playback";
 import type { ProjectSnapshot } from "../domain/types";
+import { canStartPlayback, getStageAfterPlaybackStops, shouldAutoPlayChunkOnClick } from "../domain/workflow";
 import { createAudioPlayer } from "../infrastructure/audioPlayer";
 import {
   fetchProject,
@@ -198,6 +199,9 @@ export function useLongFormPlaybackSession({
               if (nextIndex >= queueLengthRef.current) {
                 stopPolling();
                 dispatch(readerActions.setPlaybackState("idle"));
+                dispatch(
+                  readerActions.setWorkflowStage(getStageAfterPlaybackStops(queueLengthRef.current > 0)),
+                );
                 return;
               }
 
@@ -229,6 +233,9 @@ export function useLongFormPlaybackSession({
               dispatch(readerActions.setError("Chyba při přehrávání bloku."));
               stopPolling();
               dispatch(readerActions.setPlaybackState("idle"));
+              dispatch(
+                readerActions.setWorkflowStage(getStageAfterPlaybackStops(queueLengthRef.current > 0)),
+              );
             },
             onTimeUpdate: () => {
               dispatch(readerActions.selectChunk(blockIndex));
@@ -395,6 +402,7 @@ export function useLongFormPlaybackSession({
     audioPlayerRef.current.stop();
     dispatch(readerActions.setError(message));
     dispatch(readerActions.setPlaybackState("idle"));
+    dispatch(readerActions.setWorkflowStage(getStageAfterPlaybackStops(queueLengthRef.current > 0)));
   }
 
   function startPolling(projectId: string, token: number, source: string) {
@@ -419,6 +427,7 @@ export function useLongFormPlaybackSession({
 
   const onPlay = useCallback(async () => {
     if (!state.text.trim()) return;
+    if (!canStartPlayback(state.workflowStage, chunks.length)) return;
     if (state.serverStatus !== "online") {
       dispatch(readerActions.setError("TTS server není dostupný nebo neběží v GPU režimu."));
       return;
@@ -430,6 +439,7 @@ export function useLongFormPlaybackSession({
     desiredChunkRef.current = nextChunk;
     clearRuntime();
     desiredChunkRef.current = nextChunk;
+    dispatch(readerActions.setWorkflowStage("playing"));
     dispatch(readerActions.setPlaybackState("loading"));
     tracePlayback("onPlay", { nextChunk });
 
@@ -472,6 +482,7 @@ export function useLongFormPlaybackSession({
     } catch (error) {
       dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt nelze připravit."));
       clearRuntime();
+      dispatch(readerActions.setWorkflowStage(getStageAfterPlaybackStops(chunks.length > 0)));
       dispatch(readerActions.setPlaybackState("idle"));
     }
   }, [
@@ -483,6 +494,7 @@ export function useLongFormPlaybackSession({
     chunks,
     state.blockVoices,
     state.currentProjectId,
+    state.workflowStage,
     state.selectedChunk,
     state.selectedVoice,
     state.serverStatus,
@@ -526,6 +538,7 @@ export function useLongFormPlaybackSession({
 
   const onStop = useCallback(() => {
     clearRuntime();
+    dispatch(readerActions.setWorkflowStage(getStageAfterPlaybackStops(queueLengthRef.current > 0)));
     dispatch(readerActions.setPlaybackState("idle"));
   }, [clearRuntime, dispatch]);
 
@@ -534,6 +547,10 @@ export function useLongFormPlaybackSession({
       tracePlayback("onChunkClick", { clickedChunkIndex: chunk.index }, projectRef.current);
       dispatch(readerActions.selectChunk(chunk.index));
       desiredChunkRef.current = chunk.index;
+
+      if (!shouldAutoPlayChunkOnClick(state.workflowStage)) {
+        return;
+      }
 
       const currentProject = projectRef.current;
       if (!currentProject) return;
@@ -559,7 +576,7 @@ export function useLongFormPlaybackSession({
       const token = pollTokenRef.current;
       startPolling(currentProject.id, token, "onChunkClick");
     },
-    [dispatch, playBlockAtIndex, revokeObjectUrl, stopPolling],
+    [dispatch, playBlockAtIndex, revokeObjectUrl, state.workflowStage, stopPolling],
   );
 
   const onProjectOpen = useCallback(
@@ -581,7 +598,9 @@ export function useLongFormPlaybackSession({
     textareaRef,
     currentChunkIndex: state.selectedChunk,
     playbackStatus:
-      state.playbackState !== "loading"
+      state.workflowStage !== "playing"
+        ? null
+        : state.playbackState !== "loading"
         ? projectRef.current &&
           projectRef.current.status !== "error" &&
           projectRef.current.progress.done < projectRef.current.progress.total
@@ -633,7 +652,7 @@ export function useLongFormPlaybackSession({
       try {
         const payload = await uploadVoice(file);
         await refreshVoices();
-        if (payload.voice?.name) dispatch(readerActions.setVoice(payload.voice.name));
+        return payload.voice?.name ?? null;
       } finally {
         dispatch(readerActions.setUploading(false));
       }
