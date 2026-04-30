@@ -13,11 +13,11 @@
     "test:backend": "python -m unittest discover -s tts-server/tests -v",
     "test": "npm run test:frontend && npm run test:backend",
     "verify": "npm run check:architecture && npm run check:governance && npm run test && npm run lint && npm run build",
-    "graphify:build": "graphify update . --output graphify-out",
+    "graphify:build": "graphify update .",
     "graphify:query": "graphify query",
     "graphify:explain": "graphify explain",
     "graphify:path": "graphify path",
-    "graphify:watch": "graphify watch . --output graphify-out"
+    "graphify:watch": "graphify watch ."
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

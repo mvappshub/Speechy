@@ -28,16 +28,16 @@ The visible history is minimal and uses short imperative subjects (`Initial comm
 Keep secrets in `.env` and do not commit local credentials or generated logs. Configure the frontend TTS backend via `NEXT_PUBLIC_TTS_API_BASE_URL` when the API is not available on `http://localhost:8000`. Large model files under `tts-server/` should only change when the voice or model setup intentionally changes.
 
 ## Knowledge Graph (Graphify)
-This project has a knowledge graph at `graphify-out/` with 769 nodes, 1159 edges, 24 communities.
-- **God nodes** (most connected): `JobService`, `OmniVoice`, `RuleDurationEstimator`, `StreamLengthGroupDataset`
-- **Cross-community bridges**: `OmniVoice` connects Community 0/1/2, `RuleDurationEstimator` connects 0/1
+This project has a knowledge graph at `graphify-out/` with 309 nodes, 410 edges, 16 communities.
+- **God nodes** (most connected): `JobService`, `ProjectStore`, `XttsRuntime`, `JobServiceTests`
+- **Cross-community bridges**: `JobService` connects backend job orchestration communities, `ProjectStore` connects persistence to job orchestration, `create_app()` connects HTTP presentation to runtime setup
 
-For Codex: before answering architecture questions, tracing dependencies, or searching broadly across files, read `graphify-out/GRAPH_REPORT.md` first. If local `graphify-out/graph.json` exists, use:
+For Codex: before answering architecture questions, tracing dependencies, searching broadly across files, or planning refactors/code-smell work, read `graphify-out/GRAPH_REPORT.md` first. If local `graphify-out/graph.json` exists, use:
 - `npm run graphify:query -- "question"` — query the graph (~1.7k tokens vs 100k+ naive)
 - `npm run graphify:explain -- "ComponentName"` — plain-language explanation
 - `npm run graphify:path -- "A" "B"` — shortest path between components
 
-Treat `INFERRED` edges as leads to verify in source files, not as facts. `graphify-out/graph.json`, `graph.html`, and cache files are generated local artifacts and intentionally ignored; only `graphify-out/GRAPH_REPORT.md` is tracked. Rebuild the local graph after major structural changes with `npm run graphify:build`, then commit only the updated report if it is still useful.
+For refactor planning, use Graphify to identify likely hotspots such as god nodes, cross-community bridges, thin communities, and surprising inferred edges; then verify every finding directly in the source with targeted file reads, tests, lint, and dependency searches. Treat `INFERRED` edges as leads to verify in source files, not as facts. Graphify may miss integration paths across HTTP boundaries, so trace frontend API calls to backend routes manually when planning cross-stack changes. `graphify-out/graph.json`, `graph.html`, and cache files are generated local artifacts and intentionally ignored; only `graphify-out/GRAPH_REPORT.md` is tracked. `.graphifyignore` keeps local/generated folders out of the graph. Rebuild the local graph after major structural changes with `npm run graphify:build`, then commit only the updated report if it is still useful.
 
 ## Codex Workflow Addendum
 This repository also includes a project-local skill at `.codex/skills/karpathy-guidelines/SKILL.md`.
