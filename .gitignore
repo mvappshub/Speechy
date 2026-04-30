@@ -73,3 +73,8 @@ tts-server/presentation/__pycache__
 tts-server/tmp-jobs-debug/
 .codex
 .agents/
+
+# Graphify generated output
+graphify-out/*
+!graphify-out/
+!graphify-out/GRAPH_REPORT.md

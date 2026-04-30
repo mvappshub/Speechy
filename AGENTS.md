@@ -27,6 +27,18 @@ The visible history is minimal and uses short imperative subjects (`Initial comm
 ## Configuration Notes
 Keep secrets in `.env` and do not commit local credentials or generated logs. Configure the frontend TTS backend via `NEXT_PUBLIC_TTS_API_BASE_URL` when the API is not available on `http://localhost:8000`. Large model files under `tts-server/` should only change when the voice or model setup intentionally changes.
 
+## Knowledge Graph (Graphify)
+This project has a knowledge graph at `graphify-out/` with 769 nodes, 1159 edges, 24 communities.
+- **God nodes** (most connected): `JobService`, `OmniVoice`, `RuleDurationEstimator`, `StreamLengthGroupDataset`
+- **Cross-community bridges**: `OmniVoice` connects Community 0/1/2, `RuleDurationEstimator` connects 0/1
+
+Before exploring code or tracing dependencies, read `graphify-out/GRAPH_REPORT.md` or use:
+- `npm run graphify:query -- "question"` — query the graph (~1.7k tokens vs 100k+ naive)
+- `npm run graphify:explain -- "ComponentName"` — plain-language explanation
+- `npm run graphify:path -- "A" "B"` — shortest path between components
+
+Rebuild graph after major changes: `npm run graphify:build`
+
 ## Codex Workflow Addendum
 This repository also includes a project-local skill at `.codex/skills/karpathy-guidelines/SKILL.md`.
 
