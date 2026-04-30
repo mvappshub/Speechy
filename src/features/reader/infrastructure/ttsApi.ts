@@ -10,6 +10,10 @@ export function getTtsApiBaseUrl() {
 
 const API = getTtsApiBaseUrl();
 
+type RequestOptions = RequestInit & {
+  errorDetail?: boolean;
+};
+
 function toApiError(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) {
     if (error.message === "Failed to fetch") {
@@ -20,90 +24,103 @@ function toApiError(error: unknown, fallback: string) {
   return new Error(fallback);
 }
 
-export async function fetchHealth() {
-  try {
-    const response = await fetch(`${API}/api/health`, { signal: AbortSignal.timeout(3000) });
-    if (!response.ok) throw new Error("Server unavailable");
-    return (await response.json()) as Health;
-  } catch (error) {
-    throw toApiError(error, "Server unavailable");
+async function readErrorMessage(response: Response, fallback: string) {
+  const payload = await response.json().catch(() => null);
+  if (payload && typeof payload === "object" && "detail" in payload) {
+    const detail = (payload as { detail?: unknown }).detail;
+    if (typeof detail === "string" && detail) return detail;
   }
+  return fallback;
+}
+
+async function requestJson<T>(path: string, fallback: string, options: RequestOptions = {}) {
+  const { errorDetail, ...init } = options;
+  try {
+    const response = await fetch(`${API}${path}`, init);
+    if (!response.ok) {
+      throw new Error(errorDetail ? await readErrorMessage(response, fallback) : fallback);
+    }
+    return (await response.json()) as T;
+  } catch (error) {
+    throw toApiError(error, fallback);
+  }
+}
+
+async function requestBlob(path: string, fallback: string, options: RequestOptions = {}) {
+  const { errorDetail, ...init } = options;
+  try {
+    const response = await fetch(`${API}${path}`, init);
+    if (!response.ok) {
+      throw new Error(errorDetail ? await readErrorMessage(response, fallback) : fallback);
+    }
+    return await response.blob();
+  } catch (error) {
+    throw toApiError(error, fallback);
+  }
+}
+
+async function requestVoid(path: string, fallback: string, options: RequestOptions = {}) {
+  const { errorDetail, ...init } = options;
+  try {
+    const response = await fetch(`${API}${path}`, init);
+    if (!response.ok) {
+      throw new Error(errorDetail ? await readErrorMessage(response, fallback) : fallback);
+    }
+  } catch (error) {
+    throw toApiError(error, fallback);
+  }
+}
+
+export async function fetchHealth() {
+  return requestJson<Health>("/api/health", "Server unavailable", {
+    signal: AbortSignal.timeout(3000),
+  });
 }
 
 export async function fetchVoices() {
-  try {
-    const response = await fetch(`${API}/api/voices`, { cache: "no-store" });
-    if (!response.ok) throw new Error("Unable to load voices");
-    const payload = await response.json();
-    return payload as { default_voice: string; voices: Voice[] };
-  } catch (error) {
-    throw toApiError(error, "Unable to load voices");
-  }
+  return requestJson<{ default_voice: string; voices: Voice[] }>("/api/voices", "Unable to load voices", {
+    cache: "no-store",
+  });
 }
 
 export async function fetchProjects() {
-  try {
-    const response = await fetch(`${API}/api/projects`, { cache: "no-store" });
-    if (!response.ok) throw new Error("Unable to load projects");
-    return (await response.json()) as ProjectSummary[];
-  } catch (error) {
-    throw toApiError(error, "Unable to load projects");
-  }
+  return requestJson<ProjectSummary[]>("/api/projects", "Unable to load projects", {
+    cache: "no-store",
+  });
 }
 
 export async function fetchProject(projectId: string) {
-  try {
-    const response = await fetch(`${API}/api/projects/${projectId}`, { cache: "no-store" });
-    if (!response.ok) throw new Error("Unable to load project.");
-    return (await response.json()) as ProjectSnapshot;
-  } catch (error) {
-    throw toApiError(error, "Unable to load project.");
-  }
+  return requestJson<ProjectSnapshot>(`/api/projects/${projectId}`, "Unable to load project.", {
+    cache: "no-store",
+  });
 }
 
 export async function createProject(input?: { title?: string }) {
-  try {
-    const response = await fetch(`${API}/api/projects`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: input?.title ?? null }),
-    });
-    if (!response.ok) throw new Error("Unable to create project.");
-    return (await response.json()) as ProjectSnapshot;
-  } catch (error) {
-    throw toApiError(error, "Unable to create project.");
-  }
+  return requestJson<ProjectSnapshot>("/api/projects", "Unable to create project.", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: input?.title ?? null }),
+  });
 }
 
 export async function updateProject(
   projectId: string,
   input: { title?: string; pinned?: boolean },
 ) {
-  try {
-    const response = await fetch(`${API}/api/projects/${projectId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: input.title,
-        pinned: input.pinned,
-      }),
-    });
-    if (!response.ok) throw new Error("Unable to update project.");
-    return (await response.json()) as ProjectSnapshot;
-  } catch (error) {
-    throw toApiError(error, "Unable to update project.");
-  }
+  return requestJson<ProjectSnapshot>(`/api/projects/${projectId}`, "Unable to update project.", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: input.title,
+      pinned: input.pinned,
+    }),
+  });
 }
 
 export async function deleteProject(projectId: string) {
-  try {
-    const response = await fetch(`${API}/api/projects/${projectId}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) throw new Error("Unable to delete project.");
-  } catch (error) {
-    throw toApiError(error, "Unable to delete project.");
-  }
+  await requestVoid(`/api/projects/${projectId}`, "Unable to delete project.", {
+    method: "DELETE",
+  });
 }
 
 export async function syncProject(input: {
@@ -115,7 +132,7 @@ export async function syncProject(input: {
   language?: string;
   speed?: number;
 }) {
-  const response = await fetch(`${API}/api/projects/sync`, {
+  return requestJson<ProjectSnapshot>("/api/projects/sync", "Project sync failed.", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -127,39 +144,30 @@ export async function syncProject(input: {
       language: input.language ?? "cs",
       speed: input.speed ?? 1,
     }),
+    errorDetail: true,
   });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Project sync failed." }));
-    throw new Error(err.detail || "Project sync failed.");
-  }
-  return (await response.json()) as ProjectSnapshot;
 }
 
 export async function startProjectRender(projectId: string) {
-  const response = await fetch(`${API}/api/projects/${projectId}/render`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Project render failed." }));
-    throw new Error(err.detail || "Project render failed.");
-  }
-  return (await response.json()) as {
+  return requestJson<{
     status: "queued" | "ready";
     job_id: string | null;
     project: ProjectSnapshot;
-  };
+  }>(`/api/projects/${projectId}/render`, "Project render failed.", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    errorDetail: true,
+  });
 }
 
 export async function uploadVoice(file: File) {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch(`${API}/api/voices`, { method: "POST", body: form });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Voice upload failed." }));
-    throw new Error(err.detail || "Voice upload failed.");
-  }
-  return await response.json();
+  return requestJson<{ voice?: Voice }>("/api/voices", "Voice upload failed.", {
+    method: "POST",
+    body: form,
+    errorDetail: true,
+  });
 }
 
 export async function startRender(input: {
@@ -168,7 +176,7 @@ export async function startRender(input: {
   language?: string;
   speed?: number;
 }) {
-  const response = await fetch(`${API}/api/render`, {
+  return requestJson<{ id: string; status: string }>("/api/render", "Render failed.", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -177,42 +185,32 @@ export async function startRender(input: {
       language: input.language ?? "cs",
       speed: input.speed ?? 1,
     }),
+    errorDetail: true,
   });
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Render failed." }));
-    throw new Error(err.detail || "Render failed.");
-  }
-
-  return (await response.json()) as { id: string; status: string };
 }
 
 export async function fetchRenderStatus(jobId: string) {
-  const response = await fetch(`${API}/api/render/${jobId}`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Unable to fetch render status.");
-  return (await response.json()) as RenderStatus;
+  return requestJson<RenderStatus>(`/api/render/${jobId}`, "Unable to fetch render status.", {
+    cache: "no-store",
+  });
 }
 
 export async function fetchRenderBlockAudioBlob(jobId: string, blockIndex: number) {
-  const response = await fetch(`${API}/api/render/${jobId}/blocks/${blockIndex}/audio`, {
+  return requestBlob(`/api/render/${jobId}/blocks/${blockIndex}/audio`, "Unable to fetch block audio.", {
     cache: "no-store",
   });
-  if (!response.ok) throw new Error("Unable to fetch block audio.");
-  return await response.blob();
 }
 
 export async function fetchProjectBlockAudioBlob(projectId: string, blockIndex: number) {
-  const response = await fetch(`${API}/api/projects/${projectId}/blocks/${blockIndex}/audio`, {
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error("Unable to fetch project block audio.");
-  return await response.blob();
+  return requestBlob(
+    `/api/projects/${projectId}/blocks/${blockIndex}/audio`,
+    "Unable to fetch project block audio.",
+    { cache: "no-store" },
+  );
 }
 
 export async function fetchRenderAudioBlob(jobId: string) {
-  const response = await fetch(`${API}/api/render/${jobId}/audio`);
-  if (!response.ok) throw new Error("Unable to fetch final audio.");
-  return await response.blob();
+  return requestBlob(`/api/render/${jobId}/audio`, "Unable to fetch final audio.");
 }
 
 export function getRenderDownloadUrl(jobId: string) {
