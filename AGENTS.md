@@ -32,7 +32,7 @@ This project has a knowledge graph at `graphify-out/` with 309 nodes, 410 edges,
 - **God nodes** (most connected): `JobService`, `ProjectStore`, `XttsRuntime`, `JobServiceTests`
 - **Cross-community bridges**: `JobService` connects backend job orchestration communities, `ProjectStore` connects persistence to job orchestration, `create_app()` connects HTTP presentation to runtime setup
 
-For Codex: before answering architecture questions, tracing dependencies, searching broadly across files, or planning refactors/code-smell work, read `graphify-out/GRAPH_REPORT.md` first. If local `graphify-out/graph.json` exists, use:
+For Codex: before answering architecture questions, tracing dependencies, searching broadly across files, or planning refactors/code-smell work, read `graphify-out/GRAPH_REPORT.md` first. Use Graphify whenever it is likely to reduce token usage or avoid broad raw-file scanning, especially for architecture questions, dependency tracing, code-smell discovery, refactor planning, unfamiliar subsystems, and cross-module impact analysis. Skip Graphify for narrow tasks where the exact file or symbol is already known and reading the graph would add more overhead than value. If local `graphify-out/graph.json` exists, use:
 - `npm run graphify:query -- "question"` — query the graph (~1.7k tokens vs 100k+ naive)
 - `npm run graphify:explain -- "ComponentName"` — plain-language explanation
 - `npm run graphify:path -- "A" "B"` — shortest path between components
