@@ -32,12 +32,12 @@ This project has a knowledge graph at `graphify-out/` with 769 nodes, 1159 edges
 - **God nodes** (most connected): `JobService`, `OmniVoice`, `RuleDurationEstimator`, `StreamLengthGroupDataset`
 - **Cross-community bridges**: `OmniVoice` connects Community 0/1/2, `RuleDurationEstimator` connects 0/1
 
-Before exploring code or tracing dependencies, read `graphify-out/GRAPH_REPORT.md` or use:
+For Codex: before answering architecture questions, tracing dependencies, or searching broadly across files, read `graphify-out/GRAPH_REPORT.md` first. If local `graphify-out/graph.json` exists, use:
 - `npm run graphify:query -- "question"` — query the graph (~1.7k tokens vs 100k+ naive)
 - `npm run graphify:explain -- "ComponentName"` — plain-language explanation
 - `npm run graphify:path -- "A" "B"` — shortest path between components
 
-Rebuild graph after major changes: `npm run graphify:build`
+Treat `INFERRED` edges as leads to verify in source files, not as facts. `graphify-out/graph.json`, `graph.html`, and cache files are generated local artifacts and intentionally ignored; only `graphify-out/GRAPH_REPORT.md` is tracked. Rebuild the local graph after major structural changes with `npm run graphify:build`, then commit only the updated report if it is still useful.
 
 ## Codex Workflow Addendum
 This repository also includes a project-local skill at `.codex/skills/karpathy-guidelines/SKILL.md`.
