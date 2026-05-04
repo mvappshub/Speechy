@@ -12,6 +12,7 @@ import {
   startProjectRender,
   getRenderDownloadUrl,
   getTtsApiBaseUrl,
+  fetchVoices,
   syncProject,
   startRender,
 } from "./ttsApi";
@@ -120,6 +121,49 @@ test("fetchProjects loads recent saved projects", async () => {
   const projects = await fetchProjects();
 
   assert.equal(projects[0]?.id, "project-1");
+
+  global.fetch = originalFetch;
+});
+
+test("fetchVoices loads available backend voices", async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        default_voice: "speaker.wav",
+        voices: [
+          {
+            name: "speaker.wav",
+            path: "C:/voices/speaker.wav",
+            size: 123,
+            is_default: true,
+            has_transcript: true,
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+  const payload = await fetchVoices();
+
+  assert.equal(payload.default_voice, "speaker.wav");
+  assert.equal(payload.voices[0]?.name, "speaker.wav");
+
+  global.fetch = originalFetch;
+});
+
+test("fetchVoices reports backend connection failures", async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => {
+    throw new Error("Failed to fetch");
+  };
+
+  await assert.rejects(fetchVoices(), /Nepodařilo se spojit s TTS backendem/);
 
   global.fetch = originalFetch;
 });

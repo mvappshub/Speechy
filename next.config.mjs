@@ -7,7 +7,12 @@ const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
-  allowedDevOrigins: ["127.0.0.1", "localhost"],
+  allowedDevOrigins: [
+    "127.0.0.1",
+    "localhost",
+    "192.168.0.*",
+    "172.27.176.*",
+  ],
   turbopack: {
     root: projectRoot,
   },

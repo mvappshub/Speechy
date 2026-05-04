@@ -80,5 +80,6 @@ These are enforced at the GitHub repository level, not in code:
 
 ## Change Log
 
+- **2026-05-01**: Tightened the UI/application separation rule after Graphify review found playback and backend orchestration hotspots. Clarified that UI may keep only local visual state, application workflows must be split before extension, existing hotspots are refactor debt rather than precedent, and entrypoints are capped at 20 LOC to match the active architecture check. Accepted risk: the documented target is stricter than several current files, so refactor work must reduce those violations incrementally instead of enabling a failing guard all at once.
 - **2026-04-15**: Consolidated governance from `docs/architecture/CONSTITUTION.md`, `BOUNDARIES.md`, and `GOVERNANCE.md` into canonical `docs/constitution.md`, `docs/architecture.md`, and `docs/governance.md`. Expanded rules to include LOC limits per category, dumping-ground ban, mixed-diff ban, change-size guard, refactor-before-extend triggers, forbidden API in presentation, and hosting-level requirements. Retired `.governance/GOVERNANCE_CHANGE.md` in favor of the Change Log in this file.
 - **2026-04-14**: Introduced layered reader and TTS architecture, plus automated boundary checks and hotspot limits.

@@ -58,12 +58,17 @@ export function createAudioPlayer() {
     };
   }
 
+  function getAudioElement() {
+    if (!audio) {
+      audio = new Audio();
+    }
+    return audio;
+  }
+
   function clearAudio() {
     loadVersion += 1;
-    const currentAudio = audio;
-    audio = null;
     hasActiveSource = false;
-    releaseAudioElement(currentAudio);
+    releaseAudioElement(audio);
     updateDebugState("idle");
   }
 
@@ -71,8 +76,7 @@ export function createAudioPlayer() {
     async load(url: string, volume: number, events: AudioEvents) {
       clearAudio();
       const version = loadVersion;
-      const element = new Audio();
-      audio = element;
+      const element = getAudioElement();
       element.preload = "auto";
       element.volume = volume;
       bindEvents(element, events, version);

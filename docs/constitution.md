@@ -9,6 +9,7 @@ Non-overridable rules. Changing any rule here requires a governance record in `d
 ## 2. Dumb Presentation
 
 UI files render and delegate. They do not own API calls, storage, polling, or model orchestration. A UI component may call application-layer hooks but must never call infrastructure or perform side effects directly.
+UI may keep local visual state such as hover, focus, open menus, selected tabs, and draft form text. It must not own business state transitions, project synchronization, playback sequencing, polling loops, audio lifecycle, or retry/error workflow policy.
 
 Forbidden in `ui`/`presentation` layers:
 - `fetch`, `axios`, or any HTTP client
@@ -28,6 +29,7 @@ All external effects and adapters live in infrastructure. This includes API clie
 ## 5. Application Coordinates
 
 Application coordinates use cases and state transitions. It may call domain and infrastructure but must not contain JSX or HTTP route definitions.
+Application modules must stay focused on one use case or one cohesive workflow. When an application hook/service accumulates multiple timelines, polling loops, external adapters, and mutable refs, split it before extending it.
 
 ## 6. No Dumping Grounds
 
@@ -46,7 +48,7 @@ When a file exceeds its LOC limit or a module's responsibility blurs, refactor b
 
 | Category | Max LOC |
 |---|---|
-| Entrypoint (`page.tsx`, `server.py`) | 120 |
+| Entrypoint (`page.tsx`, `server.py`) | 20 |
 | UI component (per file) | 180 |
 | Application service (per file) | 220 |
 | Domain / Infrastructure module (per file) | 300 |

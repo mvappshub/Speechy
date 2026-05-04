@@ -17,7 +17,7 @@ class FakeAudio {
   readyState = 4;
   private listeners = new Map<string, Set<() => void>>();
 
-  constructor(src: string) {
+  constructor(src = "") {
     this.src = src;
     FakeAudio.instances.push(this);
   }
@@ -96,7 +96,7 @@ test("audio player clears active audio after playback ends", async () => {
   }
 });
 
-test("audio player reuses the same audio instance across loads", async () => {
+test("audio player reuses the audio element across loads", async () => {
   const OriginalAudio = globalThis.Audio;
   const OriginalHtmlMediaElement = globalThis.HTMLMediaElement;
 
@@ -123,7 +123,7 @@ test("audio player reuses the same audio instance across loads", async () => {
 
     assert.equal(FakeAudio.instances.length, 1);
     assert.equal(FakeAudio.instances[0], firstInstance);
-    assert.equal(firstInstance?.src, "blob:second");
+    assert.equal(FakeAudio.instances[0]?.src, "blob:second");
   } finally {
     Object.assign(globalThis, {
       Audio: OriginalAudio,

@@ -26,6 +26,7 @@ export function TextEditor({
       placeholder="Napište text zde..."
       spellCheck={false}
       disabled={disabled}
+      suppressHydrationWarning
     />
   );
 }

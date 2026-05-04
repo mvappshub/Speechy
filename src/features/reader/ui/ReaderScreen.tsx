@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { Copy, ScissorsLineDashed, Sparkles, Trash2 } from "lucide-react";
 import { canStartPlayback } from "../domain/workflow";
 import { useReaderController } from "../application/useReaderController";
@@ -9,14 +9,24 @@ import { PlaybackControls } from "./PlaybackControls";
 import { PlaybackView } from "./PlaybackView";
 import { ProjectSelector } from "./ProjectSelector";
 import { TextEditor } from "./TextEditor";
+import { VoiceSelector } from "./VoiceSelector";
 
 export function ReaderScreen() {
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   const controller = useReaderController();
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const [uploadingBlockIndex, setUploadingBlockIndex] = useState<number | null>(null);
+  const [uploadingVoiceTarget, setUploadingVoiceTarget] = useState<"global" | number | null>(null);
   const isPlaybackVisible = controller.state.workflowStage !== "editing";
   const canPlay = canStartPlayback(controller.state.workflowStage, controller.chunks.length);
   const isWorkflowLocked = controller.state.workflowStage === "playing";
+
+  if (!mounted) {
+    return <div className="min-h-screen w-full bg-white" />;
+  }
 
   return (
     <div className="min-h-screen w-full bg-white font-sans">
@@ -65,7 +75,17 @@ export function ReaderScreen() {
             </button>
           </div>
 
-          <div className="min-h-5" />
+          <VoiceSelector
+            selectedVoice={controller.state.selectedVoice}
+            voices={controller.state.voices}
+            disabled={isWorkflowLocked}
+            uploading={controller.state.uploading && uploadingVoiceTarget === "global"}
+            onVoiceChange={controller.onVoiceChange}
+            onUploadClick={() => {
+              setUploadingVoiceTarget("global");
+              fileRef.current?.click();
+            }}
+          />
         </div>
 
         <ErrorBanner error={controller.state.error} onDismiss={controller.onDismissError} />
@@ -83,7 +103,7 @@ export function ReaderScreen() {
               onChunkClick={controller.onChunkClick}
               onBlockVoiceChange={controller.onBlockVoiceChange}
               onBlockVoiceUpload={(index) => {
-                setUploadingBlockIndex(index);
+                setUploadingVoiceTarget(index);
                 fileRef.current?.click();
               }}
             />
@@ -118,10 +138,16 @@ export function ReaderScreen() {
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];
-            if (file && uploadingBlockIndex !== null) {
-              void controller.onBlockVoiceUpload(uploadingBlockIndex, file);
+            if (file && typeof uploadingVoiceTarget === "number") {
+              void controller.onBlockVoiceUpload(uploadingVoiceTarget, file);
             }
-            setUploadingBlockIndex(null);
+            if (file && uploadingVoiceTarget === "global") {
+              void (async () => {
+                const uploadedVoice = await controller.onVoiceUpload(file);
+                if (uploadedVoice) controller.onVoiceChange(uploadedVoice);
+              })();
+            }
+            setUploadingVoiceTarget(null);
             event.target.value = "";
           }}
         />

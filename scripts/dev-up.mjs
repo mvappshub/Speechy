@@ -173,6 +173,8 @@ startProcess({
     nextBin,
     "dev",
     "--turbopack",
+    "-H",
+    "0.0.0.0",
     "-p",
     String(frontendPort),
   ],

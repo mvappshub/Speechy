@@ -3,6 +3,29 @@
 ## Project Structure & Module Organization
 The main app lives in `src/` and uses the Next.js App Router. Put routes and global styles in `src/app/`, keep only actively used UI helpers in `src/components/`, and place shared utilities in `src/lib/`. Reader-specific code lives under `src/features/reader/` split into `domain`, `application`, `infrastructure`, and `ui`. Static assets live in `public/`. The local text-to-speech backend entrypoint is `tts-server/server.py`, with implementation split across `tts-server/presentation`, `application`, `domain`, and `infrastructure`.
 
+## Target Architecture & Layer Rules
+The target architecture is strict separation of presentation from logic. Existing files that violate these rules are refactor debt, not precedent. Do not copy their shape into new code.
+
+Frontend reader layers:
+- `src/features/reader/ui/`: React presentation only. UI receives data, renders controls, manages local visual state such as hover/menu/focus, and calls callbacks or application hooks. UI must not call API clients, browser storage, audio adapters, polling loops, project synchronization, or workflow orchestration directly.
+- `src/features/reader/application/`: use-case orchestration, React hooks, reducers, state transitions, and coordination between domain rules and infrastructure adapters. Application code may call infrastructure, but should keep long-running workflows split by responsibility.
+- `src/features/reader/domain/`: pure rules, types, calculations, state machines, chunk/playback decisions, and text transforms. No React, browser APIs, API clients, timers, storage, or audio objects.
+- `src/features/reader/infrastructure/`: external adapters only: TTS API, audio player, clipboard, local storage, and other browser or network effects. Infrastructure must not decide reader workflow policy.
+
+Backend TTS layers:
+- `tts-server/presentation/`: FastAPI routes, request/response models, HTTP status mapping, and serialization. No render orchestration or persistence policy.
+- `tts-server/application/`: use cases and orchestration: project rendering, job lifecycle, progress, and coordination of runtime + storage. Split orchestration files before they become god objects.
+- `tts-server/domain/`: pure Python rules and types. No filesystem, FastAPI, GPU, model, or network dependencies.
+- `tts-server/infrastructure/`: filesystem stores, voice store, GPU checks, XTTS runtime, and audio/model adapters. Infrastructure provides capabilities; application decides workflow.
+
+Current refactor targets:
+- `useLongFormPlaybackSession.ts` should be split into focused application hooks/services for audio lifecycle, project polling, project preparation, and playback transitions.
+- `useReaderController.ts` should not duplicate project hydration and workflow setup sequences.
+- `JobService` should be split so legacy render jobs, project render orchestration, task registry, and audio assembly are not one object.
+- `ProjectStore` should move domain decisions such as timeline/cache/status calculations out of raw persistence over time.
+
+Before starting architecture refactors, use `docs/architecture/REFACTOR_PLAN.md` as the execution playbook. It contains the repo-specific invariants, stop conditions, extraction order, and verification commands. Do not treat it as optional background; it is the working checklist for reducing these hotspots safely.
+
 ## Build, Test, and Development Commands
 - `npm run dev`: starts the Next.js app on port 3000 and writes output to `dev.log`.
 - `npm run build`: creates a production standalone build under `.next/standalone`.
@@ -14,6 +37,13 @@ The main app lives in `src/` and uses the Next.js App Router. Put routes and glo
 - `npm run verify`: runs architecture/governance checks, tests, lint, and production build.
 - `python -m unittest discover -s tts-server/tests -v`: runs backend unit tests for long-form chunking logic.
 - `cd tts-server && python server.py`: starts the local FastAPI TTS service on port 8000.
+
+## Local Git Note
+On this Windows machine, PowerShell may not reliably resolve `git` from `PATH`, even when Git is installed and the path was previously fixed. Do not waste time re-debugging `PATH` for routine repo work. Use the installed Git executable directly:
+- `C:\Program Files\Git\cmd\git.exe`
+
+Example:
+- `& 'C:\Program Files\Git\cmd\git.exe' status --short`
 
 ## Coding Style & Naming Conventions
 Use 2-space indentation in both TypeScript and Python to match the existing files. Prefer TypeScript functional React components, `PascalCase` for component exports, and `camelCase` for hooks, helpers, variables, and functions. Keep route files in App Router defaults such as `page.tsx` and `layout.tsx`. Use Tailwind utilities for styling; keep shared primitives in `src/components/ui/`. Run `npm run lint` before opening a PR.
@@ -93,3 +123,13 @@ This repository is operated by a non-programmer user. Optimize for:
 - one focused question at a time only when necessary
 - fewer speculative refactors
 - stronger guardrails against hallucinated assumptions and unnecessary code churn
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)

@@ -62,6 +62,7 @@ tts-server/tmp-jobs
 /tts-server/tmp-jobs
 tts-server/voices
 /tts-server/voices
+tts-server/.model-cache/
 /tts-server/__pycache__
 /tts-server/tests/__pycache__
 

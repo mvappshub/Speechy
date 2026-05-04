@@ -34,7 +34,19 @@ export function useReaderController() {
     refreshVoices,
     refreshProjects,
   });
+  const openPlaybackProject = playbackSession.onProjectOpen;
   const chunks = state.workflowStage !== "editing" ? playbackSession.playbackChunks ?? paragraphChunks : [];
+
+  const applyOpenedProject = useCallback(
+    async (project: ProjectSnapshot) => {
+      hydratedProjectIdRef.current = project.id;
+      await openPlaybackProject(project);
+      dispatch(readerActions.setBlockMode(project.blocks.length > 0));
+      dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(project.blocks.length)));
+      dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
+    },
+    [openPlaybackProject],
+  );
 
   useEffect(() => {
     if (!chunks.length && state.selectedChunk !== 0) {
@@ -72,11 +84,7 @@ export function useReaderController() {
       try {
         const project = await fetchProject(state.currentProjectId!);
         if (cancelled) return;
-        hydratedProjectIdRef.current = state.currentProjectId;
-        await playbackSession.onProjectOpen(project);
-        dispatch(readerActions.setBlockMode(project.blocks.length > 0));
-        dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(project.blocks.length)));
-        dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
+        await applyOpenedProject(project);
       } catch {
         if (cancelled) return;
         hydratedProjectIdRef.current = null;
@@ -90,7 +98,7 @@ export function useReaderController() {
     return () => {
       cancelled = true;
     };
-  }, [playbackSession.onProjectOpen, state.currentProjectId]);
+  }, [applyOpenedProject, state.currentProjectId]);
 
   const resolveBlockVoices = useCallback(
     (voices: string[], fallbackVoice: string) =>
@@ -102,11 +110,7 @@ export function useReaderController() {
     try {
       initialRestoreDoneRef.current = true;
       const project = typeof projectOrId === "string" ? await fetchProject(projectOrId) : projectOrId;
-      hydratedProjectIdRef.current = project.id;
-      await playbackSession.onProjectOpen(project);
-      dispatch(readerActions.setBlockMode(project.blocks.length > 0));
-      dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(project.blocks.length)));
-      dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
+      await applyOpenedProject(project);
       await refreshProjects();
     } catch (error) {
       dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo otevřít."));
@@ -216,17 +220,14 @@ export function useReaderController() {
     },
     onEditorDoubleClick: playbackSession.onEditorDoubleClick,
     onChunkClick: playbackSession.onChunkClick,
+    onVoiceUpload: playbackSession.onVoiceUpload,
     onProjectOpen,
     onProjectCreate: async () => {
       try {
         initialRestoreDoneRef.current = true;
         dispatch(readerActions.setError(null));
         const project = await createProject();
-        hydratedProjectIdRef.current = project.id;
-        await playbackSession.onProjectOpen(project);
-        dispatch(readerActions.setBlockMode(false));
-        dispatch(readerActions.setWorkflowStage("editing"));
-        dispatch(readerActions.setBlockVoices([]));
+        await applyOpenedProject(project);
         await refreshProjects();
       } catch (error) {
         dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo vytvořit."));
@@ -240,11 +241,7 @@ export function useReaderController() {
         await refreshProjects();
         if (state.currentProjectId === projectId) {
           const project = await fetchProject(projectId);
-          hydratedProjectIdRef.current = project.id;
-          await playbackSession.onProjectOpen(project);
-          dispatch(readerActions.setBlockMode(project.blocks.length > 0));
-          dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(project.blocks.length)));
-          dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
+          await applyOpenedProject(project);
         }
       } catch (error) {
         dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo přejmenovat."));
