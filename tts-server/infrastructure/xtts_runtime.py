@@ -1,4 +1,5 @@
 import io
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,10 @@ class XttsRuntime:
         self.voice_store = VoiceStore(base_dir, "speaker.wav")
         self.gpu_info = ensure_gpu_ready()
         self._model = None
+        self._compile_enabled = os.environ.get("OMNIVOICE_COMPILE", "").strip().lower() in {
+            "1",
+            "true",
+        }
 
     @property
     def sample_rate(self) -> int:
@@ -173,6 +178,17 @@ class XttsRuntime:
             torch_dtype=omnivoice["torch"].float16,
             device_map="cuda",
         )
+        torch = omnivoice["torch"]
+        if self._compile_enabled and hasattr(torch, "compile"):
+            try:
+                self._model = torch.compile(
+                    self._model,
+                    mode="reduce-overhead",
+                    dynamic=False,
+                    fullgraph=False,
+                )
+            except Exception as exc:
+                print(f"[XttsRuntime] torch.compile failed, using eager mode: {exc}", file=sys.stderr)
         return self._model
 
     def _load_omnivoice_symbols(self) -> dict[str, Any]:

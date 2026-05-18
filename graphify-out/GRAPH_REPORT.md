@@ -1,12 +1,12 @@
-# Graph Report - speechy  (2026-05-04)
+# Graph Report - speechy  (2026-05-18)
 
 ## Corpus Check
-- 73 files · ~27,016 words
+- 73 files · ~27,775 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 351 nodes · 466 edges · 18 communities detected
-- Extraction: 88% EXTRACTED · 12% INFERRED · 0% AMBIGUOUS · INFERRED: 55 edges (avg confidence: 0.66)
+- 363 nodes · 486 edges · 17 communities detected
+- Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 55 edges (avg confidence: 0.66)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
@@ -26,20 +26,19 @@
 - [[_COMMUNITY_Community 13|Community 13]]
 - [[_COMMUNITY_Community 15|Community 15]]
 - [[_COMMUNITY_Community 16|Community 16]]
-- [[_COMMUNITY_Community 17|Community 17]]
-- [[_COMMUNITY_Community 25|Community 25]]
+- [[_COMMUNITY_Community 24|Community 24]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `JobService` - 44 edges
 2. `ProjectStore` - 27 edges
 3. `XttsRuntime` - 19 edges
-4. `JobServiceTests` - 15 edges
-5. `requestJson()` - 14 edges
-6. `TaskRegistry` - 14 edges
-7. `HttpAppTests` - 12 edges
-8. `ProjectRenderService` - 11 edges
-9. `VoiceStore` - 11 edges
-10. `InferenceOptions` - 11 edges
+4. `JobServiceTests` - 16 edges
+5. `HttpAppTests` - 15 edges
+6. `requestJson()` - 14 edges
+7. `TaskRegistry` - 14 edges
+8. `FakeJobs` - 13 edges
+9. `ProjectRenderService` - 11 edges
+10. `VoiceStore` - 11 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `useLongFormPlaybackSession()` --calls--> `useProjectPreparation()`  [INFERRED]
@@ -56,27 +55,27 @@
 ## Communities
 
 ### Community 0 - "Community 0"
-Cohesion: 0.07
+Cohesion: 0.06
 Nodes (6): create_app(), FakeJobs, FakeRuntime, FakeVoicePath, FakeVoiceStore, HttpAppTests
 
 ### Community 1 - "Community 1"
-Cohesion: 0.17
-Nodes (4): _derive_title(), _normalize_text(), ProjectStore, _slugify()
+Cohesion: 0.09
+Nodes (5): JobService, Job, RenderBlock, TimelineBlock, TypedDict
 
 ### Community 2 - "Community 2"
-Cohesion: 0.1
-Nodes (1): JobService
+Cohesion: 0.18
+Nodes (4): _derive_title(), _normalize_text(), ProjectStore, _slugify()
 
 ### Community 3 - "Community 3"
-Cohesion: 0.16
-Nodes (3): FakeRuntime, JobServiceTests, PromptFailureRuntime
+Cohesion: 0.15
+Nodes (23): clearProjectBlockAudioCache(), createProject(), deleteProject(), ensureActiveProjectAudioCache(), fetchHealth(), fetchProject(), fetchProjectBlockAudioBlob(), fetchProjects() (+15 more)
 
 ### Community 4 - "Community 4"
-Cohesion: 0.17
-Nodes (20): createProject(), deleteProject(), fetchHealth(), fetchProject(), fetchProjectBlockAudioBlob(), fetchProjects(), fetchRenderAudioBlob(), fetchRenderBlockAudioBlob() (+12 more)
+Cohesion: 0.15
+Nodes (3): FakeRuntime, JobServiceTests, PromptFailureRuntime
 
 ### Community 5 - "Community 5"
-Cohesion: 0.1
+Cohesion: 0.09
 Nodes (11): useAudioPlaybackSession(), useLongFormPlaybackSession(), useProjectPolling(), useReaderController(), useReaderHealthAndVoices(), useReaderSettings(), blockPosition(), getReaderPlaybackStatus() (+3 more)
 
 ### Community 6 - "Community 6"
@@ -108,8 +107,8 @@ Cohesion: 0.2
 Nodes (1): FakeAudio
 
 ### Community 13 - "Community 13"
-Cohesion: 0.36
-Nodes (5): checkPortAvailable(), checkPortOnHost(), findFreePort(), pipeOutput(), startProcess()
+Cohesion: 0.33
+Nodes (6): canBindPortOnHost(), checkPortAvailable(), findFreePort(), hasLocalListener(), pipeOutput(), startProcess()
 
 ### Community 15 - "Community 15"
 Cohesion: 0.4
@@ -119,19 +118,13 @@ Nodes (2): getStageAfterPlaybackStops(), getWorkflowStageForPlaybackState()
 Cohesion: 0.5
 Nodes (2): normalizeWhitespace(), splitOversizedSentence()
 
-### Community 17 - "Community 17"
-Cohesion: 0.6
-Nodes (4): Job, RenderBlock, TimelineBlock, TypedDict
-
-### Community 25 - "Community 25"
+### Community 24 - "Community 24"
 Cohesion: 0.67
 Nodes (1): GovernanceGuardTests
 
 ## Knowledge Gaps
 - **1 isolated node(s):** `Helpers for splitting long Czech text into stable render blocks.`
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Community 2`** (26 nodes): `JobService`, `._active_job_count()`, `._assemble_project_audio()`, `._build_inference_options()`, `.cleanup_expired_jobs()`, `.create_job()`, `.create_project()`, `._delete_job_files()`, `.delete_project()`, `.get_block_audio()`, `.get_final_audio()`, `.get_job()`, `.get_project()`, `.list_projects()`, `._log_project_render_error()`, `._render_block()`, `.render_project()`, `._run_job()`, `._run_project()`, `.shutdown()`, `.update_project_metadata()`, `.wait_for_job()`, `.wait_for_project()`, `._write_block_audio()`, `._write_final_audio()`, `job_service.py`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 7`** (14 nodes): `ProjectAudioAssembler`, `.assemble_project_audio()`, `.__init__()`, `.__init__()`, `ProjectRenderService`, `._build_inference_options()`, `.__init__()`, `._log_project_render_error()`, `._render_block()`, `.render_project()`, `._run_project()`, `.wait_for_project()`, `audio_assembly.py`, `project_render_service.py`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 8`** (13 nodes): `TaskRegistry`, `.active_job_count()`, `.cancel_project()`, `.__init__()`, `.project_job_id()`, `.project_task()`, `.remove_legacy_job()`, `.shutdown()`, `.start_legacy_job()`, `.start_project_job()`, `.wait_for_legacy_job()`, `.wait_for_project()`, `task_registry.py`
@@ -144,18 +137,18 @@ Nodes (1): GovernanceGuardTests
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 16`** (5 nodes): `normalizeWhitespace()`, `splitOversizedSentence()`, `splitTextIntoParagraphChunks()`, `splitTextIntoPlaybackChunks()`, `chunking.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 25`** (3 nodes): `GovernanceGuardTests`, `.test_checker_fails_closed_when_git_diff_is_unavailable()`, `test_governance_guard.py`
+- **Thin community `Community 24`** (3 nodes): `GovernanceGuardTests`, `.test_checker_fails_closed_when_git_diff_is_unavailable()`, `test_governance_guard.py`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `JobService` connect `Community 2` to `Community 1`, `Community 3`, `Community 6`, `Community 7`, `Community 8`, `Community 10`, `Community 17`?**
-  _High betweenness centrality (0.222) - this node is a cross-community bridge._
-- **Why does `ProjectStore` connect `Community 1` to `Community 2`, `Community 7`?**
-  _High betweenness centrality (0.077) - this node is a cross-community bridge._
+- **Why does `JobService` connect `Community 1` to `Community 2`, `Community 4`, `Community 6`, `Community 7`, `Community 8`, `Community 10`?**
+  _High betweenness centrality (0.219) - this node is a cross-community bridge._
 - **Why does `create_app()` connect `Community 0` to `Community 6`?**
-  _High betweenness centrality (0.075) - this node is a cross-community bridge._
+  _High betweenness centrality (0.083) - this node is a cross-community bridge._
+- **Why does `ProjectStore` connect `Community 2` to `Community 1`, `Community 7`?**
+  _High betweenness centrality (0.074) - this node is a cross-community bridge._
 - **Are the 17 inferred relationships involving `JobService` (e.g. with `ProjectAudioAssembler` and `ProjectRenderService`) actually correct?**
   _`JobService` has 17 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 2 inferred relationships involving `ProjectStore` (e.g. with `JobService` and `.__init__()`) actually correct?**

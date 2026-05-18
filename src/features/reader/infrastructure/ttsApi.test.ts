@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  clearProjectBlockAudioCache,
   fetchProject,
   fetchProjectBlockAudioBlob,
   fetchProjects,
@@ -13,6 +14,7 @@ import {
   getRenderDownloadUrl,
   getTtsApiBaseUrl,
   fetchVoices,
+  preloadProjectBlockAudio,
   syncProject,
   startRender,
 } from "./ttsApi";
@@ -265,16 +267,133 @@ test("startProjectRender triggers project rendering only when needed", async () 
   global.fetch = originalFetch;
 });
 
-test("fetchProjectBlockAudioBlob loads cached project audio", async () => {
+test("fetchProjectBlockAudioBlob reuses cached project audio", async () => {
   const originalFetch = global.fetch;
+  let fetchCount = 0;
+  clearProjectBlockAudioCache(null);
 
-  global.fetch = async () => new Response(new Blob(["audio"], { type: "audio/wav" }), { status: 200 });
+  global.fetch = async () => {
+    fetchCount += 1;
+    return new Response(new Blob(["audio"], { type: "audio/wav" }), { status: 200 });
+  };
 
-  const blob = await fetchProjectBlockAudioBlob("project-1", 0);
+  const blob = await fetchProjectBlockAudioBlob("project-cache-test", 0, "block-cache-a");
+  const cachedBlob = await fetchProjectBlockAudioBlob("project-cache-test", 0, "block-cache-a");
 
   assert.equal(blob.type, "audio/wav");
+  assert.equal(cachedBlob, blob);
+  assert.equal(fetchCount, 1);
 
   global.fetch = originalFetch;
+  clearProjectBlockAudioCache(null);
+});
+
+test("fetchProjectBlockAudioBlob refreshes audio when the block cache key changes", async () => {
+  const originalFetch = global.fetch;
+  let fetchCount = 0;
+  clearProjectBlockAudioCache(null);
+
+  global.fetch = async () => {
+    fetchCount += 1;
+    return new Response(new Blob([`audio-${fetchCount}`], { type: "audio/wav" }), { status: 200 });
+  };
+
+  const firstBlob = await fetchProjectBlockAudioBlob("project-cache-version-test", 0, "block-cache-a");
+  const updatedBlob = await fetchProjectBlockAudioBlob("project-cache-version-test", 0, "block-cache-b");
+
+  assert.notEqual(updatedBlob, firstBlob);
+  assert.equal(fetchCount, 2);
+
+  global.fetch = originalFetch;
+  clearProjectBlockAudioCache(null);
+});
+
+test("preloadProjectBlockAudio fetches ready blocks and reuses them for playback", async () => {
+  const originalFetch = global.fetch;
+  const requestedUrls: string[] = [];
+  clearProjectBlockAudioCache(null);
+
+  global.fetch = async (input) => {
+    requestedUrls.push(String(input));
+    return new Response(new Blob(["audio"], { type: "audio/wav" }), { status: 200 });
+  };
+
+  preloadProjectBlockAudio({
+    id: "project-preload-test",
+    title: "Ahoj",
+    text: "Ahoj",
+    language: "cs",
+    pinned: false,
+    selected_voice: "speaker.wav",
+    settings: { speed: 1 },
+    created_at: 1,
+    updated_at: 2,
+    download_ready: false,
+    status: "ready",
+    progress: { done: 2, total: 3 },
+    blocks: [
+      {
+        index: 0,
+        text: "A",
+        status: "done",
+        audio_ready: true,
+        start_ms: 0,
+        end_ms: 100,
+        voice: "speaker.wav",
+        cache_key: "cache-a",
+      },
+      {
+        index: 1,
+        text: "B",
+        status: "queued",
+        audio_ready: false,
+        start_ms: null,
+        end_ms: null,
+        voice: "speaker.wav",
+        cache_key: "cache-b",
+      },
+      {
+        index: 2,
+        text: "C",
+        status: "done",
+        audio_ready: true,
+        start_ms: 100,
+        end_ms: 200,
+        voice: "speaker.wav",
+        cache_key: "cache-c",
+      },
+    ],
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await fetchProjectBlockAudioBlob("project-preload-test", 0, "cache-a");
+
+  assert.equal(requestedUrls.length, 2);
+  assert.match(requestedUrls[0] ?? "", /blocks\/0\/audio/);
+  assert.match(requestedUrls[1] ?? "", /blocks\/2\/audio/);
+
+  global.fetch = originalFetch;
+  clearProjectBlockAudioCache(null);
+});
+
+test("project audio cache is scoped to the active project", async () => {
+  const originalFetch = global.fetch;
+  let fetchCount = 0;
+  clearProjectBlockAudioCache(null);
+
+  global.fetch = async () => {
+    fetchCount += 1;
+    return new Response(new Blob([`audio-${fetchCount}`], { type: "audio/wav" }), { status: 200 });
+  };
+
+  await fetchProjectBlockAudioBlob("project-a", 0, "cache-a");
+  await fetchProjectBlockAudioBlob("project-b", 0, "cache-a");
+  await fetchProjectBlockAudioBlob("project-a", 0, "cache-a");
+
+  assert.equal(fetchCount, 3);
+
+  global.fetch = originalFetch;
+  clearProjectBlockAudioCache(null);
 });
 
 test("getRenderDownloadUrl points to the render download route", () => {

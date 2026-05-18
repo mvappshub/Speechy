@@ -17,9 +17,9 @@ const urls = {
 const children = [];
 let shuttingDown = false;
 
-function checkPortOnHost(port, host) {
+function hasLocalListener(port) {
   return new Promise((resolve) => {
-    const socket = net.createConnection({ port, host });
+    const socket = net.createConnection({ port, host: "127.0.0.1" });
     let settled = false;
 
     const done = (value) => {
@@ -30,28 +30,54 @@ function checkPortOnHost(port, host) {
     };
 
     socket.setTimeout(500);
-    socket.once("connect", () => done(false));
-    socket.once("timeout", () => done(true));
-    socket.once("error", (error) => {
-      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
-        done(true);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+}
+
+function canBindPortOnHost(port, host) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    let settled = false;
+
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      if (!server.listening) {
+        resolve(value);
         return;
       }
-      if (host === "::1") {
-        done(true);
-        return;
+      server.close(() => resolve(value));
+    };
+
+    server.unref();
+
+    server.once("error", (error) => {
+      if (error && typeof error === "object" && "code" in error) {
+        if (error.code === "EADDRINUSE" || error.code === "EACCES") {
+          done(false);
+          return;
+        }
       }
       done(false);
     });
+
+    server.once("listening", () => {
+      done(true);
+    });
+
+    try {
+      server.listen({ port, host, exclusive: true });
+    } catch {
+      done(false);
+    }
   });
 }
 
 async function checkPortAvailable(port) {
-  const [ipv4Available, ipv6Available] = await Promise.all([
-    checkPortOnHost(port, "0.0.0.0"),
-    checkPortOnHost(port, "::"),
-  ]);
-  return ipv4Available && ipv6Available;
+  if (await hasLocalListener(port)) return false;
+  return canBindPortOnHost(port, "0.0.0.0");
 }
 
 async function findFreePort(startPort, endPort = startPort + 50) {

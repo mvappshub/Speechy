@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -40,7 +41,12 @@ class FakeRuntime:
 
 
 class FakeJobs:
-    def __init__(self):
+    def __init__(self, temp_dir: Path):
+        self.block_audio_path = temp_dir / "block-0.wav"
+        self.block_audio_path.write_bytes(b"project-block-audio")
+        self.final_audio_path = temp_dir / "final.wav"
+        self.final_audio_path.write_bytes(b"project-final-audio")
+        self.project_store = self
         self.synced_project = {
             "id": "project-1",
             "title": "Ahoj svete.",
@@ -50,7 +56,7 @@ class FakeJobs:
             "settings": {"speed": 1.0},
             "created_at": 1.0,
             "updated_at": 2.0,
-            "final_audio_path": "/tmp/final.wav",
+            "final_audio_path": str(self.final_audio_path),
             "download_ready": True,
             "total_blocks": 2,
             "completed_blocks": 2,
@@ -64,7 +70,7 @@ class FakeJobs:
                     "cache_key": "cache-0",
                     "status": "done",
                     "error": None,
-                    "audio_path": "/tmp/block-0.wav",
+                    "audio_path": str(self.block_audio_path),
                     "audio_ready": True,
                     "duration_ms": 500,
                     "sample_rate": 22050,
@@ -78,7 +84,7 @@ class FakeJobs:
                     "cache_key": "cache-1",
                     "status": "done",
                     "error": None,
-                    "audio_path": "/tmp/block-1.wav",
+                    "audio_path": str(temp_dir / "block-1.wav"),
                     "audio_ready": True,
                     "duration_ms": 500,
                     "sample_rate": 22050,
@@ -152,11 +158,25 @@ class FakeJobs:
         self.rendered_project = project_id
         return None
 
+    def get_block_audio_path(self, project_id, block_index):
+        if project_id == "project-1" and block_index == 0:
+            return str(self.block_audio_path)
+        raise KeyError(block_index)
+
+    def get_final_audio_path(self, project_id):
+        if project_id == "project-1":
+            return str(self.final_audio_path)
+        raise KeyError(project_id)
+
 
 class HttpAppTests(unittest.TestCase):
     def setUp(self):
-        self.jobs = FakeJobs()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.jobs = FakeJobs(Path(self.temp_dir.name))
         self.client = TestClient(create_app(runtime=FakeRuntime(), jobs=self.jobs))
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
 
     def test_health_reports_omnivoice_progressive_mode(self):
         response = self.client.get("/api/health")
@@ -247,3 +267,17 @@ class HttpAppTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["status"], "ready")
         self.assertEqual(payload["project"]["id"], "project-1")
+
+    def test_project_block_audio_returns_ready_wav_file(self):
+        response = self.client.get("/api/projects/project-1/blocks/0/audio")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"project-block-audio")
+        self.assertEqual(response.headers["content-type"], "audio/wav")
+
+    def test_project_download_returns_attachment_file(self):
+        response = self.client.get("/api/projects/project-1/download")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"project-final-audio")
+        self.assertIn("attachment", response.headers["content-disposition"])

@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 import type { ProjectSnapshot } from "../domain/types";
 import { fetchProject, startProjectRender } from "../infrastructure/ttsApi";
 
-const POLL_INTERVAL_MS = 1200;
+const POLL_INTERVAL_MS = 600;
 
 type PollingFailureContext = {
   projectId: string;

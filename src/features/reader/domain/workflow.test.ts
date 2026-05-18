@@ -37,7 +37,8 @@ test("canStartPlayback only allows playback from assigning with blocks", () => {
   assert.equal(canStartPlayback("playing", 2), false);
 });
 
-test("shouldAutoPlayChunkOnClick only allows jump playback during playing stage", () => {
-  assert.equal(shouldAutoPlayChunkOnClick("assigning"), false);
+test("shouldAutoPlayChunkOnClick allows playback once blocks exist", () => {
+  assert.equal(shouldAutoPlayChunkOnClick("editing"), false);
+  assert.equal(shouldAutoPlayChunkOnClick("assigning"), true);
   assert.equal(shouldAutoPlayChunkOnClick("playing"), true);
 });

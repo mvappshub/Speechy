@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { PlaybackChunk } from "@/lib/chunking";
 import { clampChunkIndex, findChunkIndexAtCursor } from "../domain/chunkSelection";
-import { findNextPlayableBlockIndex } from "../domain/playback";
 import { getReaderPlaybackStatus } from "../domain/playbackStatus";
 import type { ProjectSnapshot } from "../domain/types";
 import { canStartPlayback, getStageAfterPlaybackStops, shouldAutoPlayChunkOnClick } from "../domain/workflow";
 import {
+  clearProjectBlockAudioCache,
   fetchProjectBlockAudioBlob,
   getProjectDownloadUrl,
+  preloadProjectBlockAudio,
   startProjectRender,
   uploadVoice,
 } from "../infrastructure/ttsApi";
@@ -38,6 +39,19 @@ function getProjectError(project: ProjectSnapshot) {
   return project.blocks.find((block) => block.error)?.error ?? "Generování projektu selhalo.";
 }
 
+function preloadUpcomingBlockAudio(project: ProjectSnapshot, blockIndex: number, queueLength: number) {
+  [blockIndex + 1, blockIndex + 2].forEach((nextIndex) => {
+    if (nextIndex >= queueLength) return;
+    const block = project.blocks[nextIndex];
+    if (!block?.audio_ready) return;
+    void fetchProjectBlockAudioBlob(project.id, nextIndex, block.cache_key).catch(() => {});
+  });
+}
+
+function getProjectAudioCacheSignature(project: ProjectSnapshot) {
+  return project.blocks.map((block) => `${block.index}:${block.cache_key}`).join("|");
+}
+
 export function useLongFormPlaybackSession({
   state,
   dispatch,
@@ -53,6 +67,7 @@ export function useLongFormPlaybackSession({
   const queueLengthRef = useRef(chunks.length);
   const latestSelectedChunkRef = useRef(state.selectedChunk);
   const latestChunksLengthRef = useRef(chunks.length);
+  const projectAudioCacheSignatureRef = useRef<string | null>(null);
 
   function tracePlayback(
     event: string,
@@ -93,9 +108,18 @@ export function useLongFormPlaybackSession({
 
   const applyProject = useCallback(
     (project: ProjectSnapshot) => {
+      const audioCacheSignature = getProjectAudioCacheSignature(project);
+      if (
+        projectRef.current?.id !== project.id ||
+        projectAudioCacheSignatureRef.current !== audioCacheSignature
+      ) {
+        clearProjectBlockAudioCache(project.id);
+      }
+      projectAudioCacheSignatureRef.current = audioCacheSignature;
       projectRef.current = project;
       queueLengthRef.current = Math.max(queueLengthRef.current, project.blocks.length);
       applyProjectToReaderState(project, dispatch);
+      preloadProjectBlockAudio(project);
       tracePlayback("applyProject", { projectId: project.id }, project);
     },
     [dispatch],
@@ -189,7 +213,7 @@ export function useLongFormPlaybackSession({
         const started = await audioPlayback.playBlockAudio({
           blockIndex,
           volume: state.volume,
-          loadBlob: () => fetchProjectBlockAudioBlob(project.id, blockIndex),
+          loadBlob: () => fetchProjectBlockAudioBlob(project.id, blockIndex, block.cache_key),
           onEnded: (requestId) => {
             tracePlayback("onEnded", { blockIndex, requestId }, projectRef.current);
 
@@ -251,6 +275,10 @@ export function useLongFormPlaybackSession({
           onPlayStart: (requestId) => {
             desiredChunkRef.current = blockIndex;
             dispatch(readerActions.selectChunk(blockIndex));
+            const currentProject = projectRef.current;
+            if (currentProject) {
+              preloadUpcomingBlockAudio(currentProject, blockIndex, queueLengthRef.current);
+            }
             tracePlayback("audioPlayer.play start", { blockIndex, requestId }, projectRef.current);
           },
           onPlaySuccess: (requestId) => {
@@ -450,13 +478,15 @@ export function useLongFormPlaybackSession({
       stopPolling();
       audioPlayback.stopAudio();
 
-      const playableChunkIndex = findNextPlayableBlockIndex(currentProject.blocks, chunk.index);
-      if (playableChunkIndex >= 0) {
-        desiredChunkRef.current = playableChunkIndex;
+      const clickedBlock = currentProject.blocks[chunk.index];
+      if (clickedBlock?.audio_ready) {
         dispatch(readerActions.setPlaybackState("loading"));
-        await playBlockAtIndex(playableChunkIndex);
+        dispatch(readerActions.setWorkflowStage("playing"));
+        await playBlockAtIndex(chunk.index);
         return;
       }
+
+      if (state.workflowStage !== "playing") return;
 
       // Block not ready yet — set desired and poll until it becomes ready, then auto-play
       dispatch(readerActions.setPlaybackState("loading"));

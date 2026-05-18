@@ -22,5 +22,5 @@ export function canStartPlayback(stage: ReaderWorkflowStage, blockCount: number)
 }
 
 export function shouldAutoPlayChunkOnClick(stage: ReaderWorkflowStage) {
-  return stage === "playing";
+  return stage !== "editing";
 }

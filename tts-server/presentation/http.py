@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from application.job_service import JobService
@@ -256,7 +256,7 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
             raise HTTPException(status_code=404, detail="Block not found")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"Block status is {exc}")
-        return StreamingResponse(io.BytesIO(Path(audio_path).read_bytes()), media_type="audio/wav")
+        return FileResponse(audio_path, media_type="audio/wav")
 
     @app.get("/api/projects/{project_id}/download")
     async def download_project_audio(project_id: str):
@@ -267,10 +267,10 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
             raise HTTPException(status_code=404, detail="Project not found")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"Project download is {exc}")
-        return StreamingResponse(
-            io.BytesIO(Path(audio_path).read_bytes()),
+        return FileResponse(
+            audio_path,
             media_type="audio/wav",
-            headers={"Content-Disposition": f'attachment; filename=\"{project_id}.wav\"'},
+            filename=f"{project_id}.wav",
         )
 
     @app.get("/api/render/{job_id}")

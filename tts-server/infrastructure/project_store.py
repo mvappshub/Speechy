@@ -45,7 +45,7 @@ class ProjectStore:
         previous = self._load_project(resolved_id)
         previous_blocks = previous["blocks"] if previous else []
         next_blocks: list[dict[str, Any]] = []
-        block_keys_changed = False
+        block_content_changed = False
 
         for index, block in enumerate(blocks):
           cache_key = self.build_cache_key(
@@ -55,9 +55,13 @@ class ProjectStore:
               settings=settings,
           )
           previous_block = previous_blocks[index] if index < len(previous_blocks) else None
-          reused = previous_block and previous_block.get("cache_key") == cache_key
+          reused = (
+              previous_block
+              and _normalize_text(previous_block.get("text", "")) == _normalize_text(block["text"])
+              and previous_block.get("voice") == block["voice"]
+          )
           if not reused:
-              block_keys_changed = True
+              block_content_changed = True
           next_blocks.append(
               {
                   "index": index,
@@ -76,7 +80,7 @@ class ProjectStore:
           )
 
         if previous and len(previous_blocks) != len(next_blocks):
-            block_keys_changed = True
+            block_content_changed = True
 
         project = {
             "id": resolved_id,
@@ -88,7 +92,7 @@ class ProjectStore:
             "settings": settings,
             "created_at": previous["created_at"] if previous else now,
             "updated_at": now,
-            "final_audio_path": previous["final_audio_path"] if previous and not block_keys_changed else None,
+            "final_audio_path": previous["final_audio_path"] if previous and not block_content_changed else None,
             "download_ready": False,
             "total_blocks": len(next_blocks),
             "completed_blocks": 0,
@@ -97,7 +101,7 @@ class ProjectStore:
 
         if previous:
             self._delete_stale_block_files(project, previous_blocks, next_blocks)
-            if block_keys_changed:
+            if block_content_changed:
                 self._delete_final_audio(project["id"])
 
         self.recompute_timeline_data(project)
@@ -255,7 +259,6 @@ class ProjectStore:
             "text": _normalize_text(text),
             "voice": voice,
             "language": language,
-            "settings": settings,
             "model_identity": self.model_identity,
         }
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
@@ -289,9 +292,9 @@ class ProjectStore:
         previous_blocks: list[dict[str, Any]],
         next_blocks: list[dict[str, Any]],
     ):
-        next_keys = {block["cache_key"] for block in next_blocks}
+        next_audio_paths = {block.get("audio_path") for block in next_blocks if block.get("audio_path")}
         for block in previous_blocks:
-            if block.get("cache_key") in next_keys:
+            if block.get("audio_path") in next_audio_paths:
                 continue
             audio_path = block.get("audio_path")
             if audio_path:

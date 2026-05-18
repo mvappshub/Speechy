@@ -175,6 +175,27 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(service.render_project(replay["id"]))
             self.assertEqual(len(service.runtime.block_lengths), initial_renders)
 
+    async def test_project_speed_change_reuses_cached_blocks_without_regeneration(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = self.make_service(temp_dir, max_active_jobs=2, ttl_seconds=60)
+
+            project = service.sync_project(None, "Prvni veta. Druha veta. Treti veta.", self.make_options(speed=1.0))
+            render_job_id = service.render_project(project["id"])
+            self.assertIsNotNone(render_job_id)
+            await service.wait_for_project(project["id"])
+
+            rendered_before_speed_change = len(service.runtime.block_lengths)
+            updated = service.sync_project(
+                project["id"],
+                "Prvni veta. Druha veta. Treti veta.",
+                self.make_options(speed=1.2),
+            )
+
+            self.assertTrue(all(block["status"] == "done" for block in updated["blocks"]))
+            self.assertTrue(updated["final_audio_path"])
+            self.assertIsNone(service.render_project(updated["id"]))
+            self.assertEqual(len(service.runtime.block_lengths), rendered_before_speed_change)
+
     async def test_project_partial_edit_only_regenerates_changed_blocks(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             service = self.make_service(temp_dir, max_active_jobs=2, ttl_seconds=60)
