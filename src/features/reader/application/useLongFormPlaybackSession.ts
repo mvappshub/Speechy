@@ -16,6 +16,10 @@ import type { ReaderAction } from "./readerActions";
 import { readerActions } from "./readerActions";
 import { getDesiredPlaybackBlockReason, getPlaybackEndTransition } from "./desiredPlaybackState";
 import {
+  attemptDesiredPlaybackOrStartPolling,
+  shouldStartProjectRender,
+} from "./playbackPollingFlow";
+import {
   buildPlaybackChunksFromProject,
   getProjectPlaybackError,
   resolveProjectDownloadUrl,
@@ -205,11 +209,12 @@ export function useLongFormPlaybackSession({
             desiredChunkRef.current = transition.nextChunkIndex;
             dispatch(readerActions.setPlaybackState("loading"));
             void (async () => {
-              const started = await (tryPlayDesiredChunkRef.current?.() ?? Promise.resolve(false));
-              if (!started) {
-                const projectId = projectRef.current?.id ?? project.id;
-                startPolling(projectId, "onEnded");
-              }
+              await attemptDesiredPlaybackOrStartPolling({
+                projectId: projectRef.current?.id ?? project.id,
+                source: "onEnded",
+                tryPlayDesiredChunk: async () => tryPlayDesiredChunkRef.current?.() ?? false,
+                startPolling,
+              });
             })().catch((error) => {
               handlePlaybackTransitionFailure(error, "onEnded");
             });
@@ -362,23 +367,25 @@ export function useLongFormPlaybackSession({
       });
       if (!project) return;
 
-      if (project.progress.total === 0 || project.progress.done < project.progress.total) {
-        tracePlayback(
-          "startProjectRender",
-          {
+       if (shouldStartProjectRender(project)) {
+         tracePlayback(
+           "startProjectRender",
+           {
             projectId: project.id,
             reason: "initial-play-request",
           },
           project,
-        );
-        const result = await startProjectRender(project.id);
-        applyProject(result.project);
-      }
-      const started = await tryPlayDesiredChunk();
-      if (!started) {
-        startPolling(project.id, "onPlay");
-      }
-    } catch (error) {
+         );
+         const result = await startProjectRender(project.id);
+         applyProject(result.project);
+       }
+       await attemptDesiredPlaybackOrStartPolling({
+         projectId: project.id,
+         source: "onPlay",
+         tryPlayDesiredChunk,
+         startPolling,
+       });
+     } catch (error) {
       dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt nelze připravit."));
       clearRuntime();
       applyPlaybackIdleState(dispatch, chunks.length > 0);
