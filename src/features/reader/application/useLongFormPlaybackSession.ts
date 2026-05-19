@@ -14,6 +14,7 @@ import {
 } from "../infrastructure/ttsApi";
 import type { ReaderAction } from "./readerActions";
 import { readerActions } from "./readerActions";
+import { deriveAppliedProjectRuntime } from "./projectPlaybackState";
 import { tracePlaybackEvent } from "./playbackTracing";
 import type { ReaderState } from "./readerReducer";
 import { useAudioPlaybackSession } from "./useAudioPlaybackSession";
@@ -41,10 +42,6 @@ function preloadUpcomingBlockAudio(project: ProjectSnapshot, blockIndex: number,
     if (!block?.audio_ready) return;
     void fetchProjectBlockAudioBlob(project.id, nextIndex, block.cache_key).catch(() => {});
   });
-}
-
-function getProjectAudioCacheSignature(project: ProjectSnapshot) {
-  return project.blocks.map((block) => `${block.index}:${block.cache_key}`).join("|");
 }
 
 export function useLongFormPlaybackSession({
@@ -81,16 +78,18 @@ export function useLongFormPlaybackSession({
 
   const applyProject = useCallback(
     (project: ProjectSnapshot) => {
-      const audioCacheSignature = getProjectAudioCacheSignature(project);
-      if (
-        projectRef.current?.id !== project.id ||
-        projectAudioCacheSignatureRef.current !== audioCacheSignature
-      ) {
+      const runtimeState = deriveAppliedProjectRuntime({
+        currentProjectId: projectRef.current?.id ?? null,
+        currentAudioCacheSignature: projectAudioCacheSignatureRef.current,
+        currentQueueLength: queueLengthRef.current,
+        project,
+      });
+      if (runtimeState.shouldClearProjectAudioCache) {
         clearProjectBlockAudioCache(project.id);
       }
-      projectAudioCacheSignatureRef.current = audioCacheSignature;
+      projectAudioCacheSignatureRef.current = runtimeState.audioCacheSignature;
       projectRef.current = project;
-      queueLengthRef.current = Math.max(queueLengthRef.current, project.blocks.length);
+      queueLengthRef.current = runtimeState.nextQueueLength;
       applyProjectToReaderState(project, dispatch);
       preloadProjectBlockAudio(project);
       tracePlayback("applyProject", { projectId: project.id }, project);
@@ -100,9 +99,8 @@ export function useLongFormPlaybackSession({
 
   const tryPlayDesiredChunkRef = useRef<(() => Promise<boolean>) | null>(null);
 
-  const handlePlaybackTransitionFailure = useCallback(
-    (error: unknown, source: string) => {
-      const message = error instanceof Error ? error.message : "Generování projektu selhalo.";
+  const transitionPlaybackToIdleWithError = useCallback(
+    (message: string, source: string) => {
       tracePlayback(
         "pollProjectUntilReady error",
         {
@@ -120,15 +118,20 @@ export function useLongFormPlaybackSession({
     [audioPlayback, dispatch],
   );
 
+  const handlePlaybackTransitionFailure = useCallback(
+    (error: unknown, source: string) => {
+      const message = error instanceof Error ? error.message : "Generování projektu selhalo.";
+      transitionPlaybackToIdleWithError(message, source);
+    },
+    [transitionPlaybackToIdleWithError],
+  );
+
   const { resetPollingError, startPolling, stopPolling } = useProjectPolling({
     applyProject,
     tryStartPlayback: async () => tryPlayDesiredChunkRef.current?.() ?? false,
     shouldKeepPolling: () => desiredChunkRef.current < queueLengthRef.current,
     onFailure: (message) => {
-      audioPlayback.clearCurrentAudio();
-      dispatch(readerActions.setError(message));
-      dispatch(readerActions.setPlaybackState("idle"));
-      dispatch(readerActions.setWorkflowStage(getStageAfterPlaybackStops(queueLengthRef.current > 0)));
+      transitionPlaybackToIdleWithError(message, "polling");
     },
     onPollingError: (message, context) => {
       tracePlayback(
