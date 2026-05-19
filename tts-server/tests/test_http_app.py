@@ -42,6 +42,7 @@ class FakeRuntime:
 
 class FakeJobs:
     def __init__(self, temp_dir: Path):
+        self.deleted_project_id = None
         self.block_audio_path = temp_dir / "block-0.wav"
         self.block_audio_path.write_bytes(b"project-block-audio")
         self.final_audio_path = temp_dir / "final.wav"
@@ -92,6 +93,11 @@ class FakeJobs:
                     "end_ms": 1000,
                 },
             ],
+        }
+        self.created_project = {
+            **self.synced_project,
+            "id": "project-created",
+            "title": "Novy projekt",
         }
 
     def create_job(self, text, options):
@@ -147,20 +153,49 @@ class FakeJobs:
     def list_projects(self):
         return [{"id": "project-1", "title": "Ahoj svete.", "preview": "Ahoj svete.", "created_at": 1.0, "updated_at": 2.0}]
 
+    def create_project(self, title=None):
+        self.create_project_title = title
+        return {
+            **self.created_project,
+            "title": title or self.created_project["title"],
+        }
+
     def sync_project(self, project_id, text, options):
         self.synced = {"project_id": project_id, "text": text, "options": options.model_dump()}
         return self.synced_project
 
     def get_project(self, project_id):
+        if project_id == "missing-project":
+            raise KeyError(project_id)
         return self.synced_project
 
+    def update_project_metadata(self, project_id, *, title=None, pinned=None):
+        if project_id == "missing-project":
+            raise KeyError(project_id)
+        self.updated_project = {"project_id": project_id, "title": title, "pinned": pinned}
+        project = dict(self.synced_project)
+        if title is not None:
+            project["title"] = title
+        if pinned is not None:
+            project["pinned"] = pinned
+        return project
+
     def render_project(self, project_id):
+        if project_id == "missing-project":
+            raise KeyError(project_id)
         self.rendered_project = project_id
         return None
+
+    def delete_project(self, project_id):
+        if project_id == "missing-project":
+            raise KeyError(project_id)
+        self.deleted_project_id = project_id
 
     def get_block_audio_path(self, project_id, block_index):
         if project_id == "project-1" and block_index == 0:
             return str(self.block_audio_path)
+        if project_id == "project-1" and block_index == 1:
+            raise ValueError("running")
         raise KeyError(block_index)
 
     def get_final_audio_path(self, project_id):
@@ -249,6 +284,15 @@ class HttpAppTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload[0]["id"], "project-1")
 
+    def test_project_create_returns_serialized_project(self):
+        response = self.client.post("/api/projects", json={"title": "Muj projekt"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["id"], "project-created")
+        self.assertEqual(payload["title"], "Muj projekt")
+        self.assertEqual(self.jobs.create_project_title, "Muj projekt")
+
     def test_project_sync_persists_reader_state(self):
         response = self.client.post(
             "/api/projects/sync",
@@ -259,6 +303,58 @@ class HttpAppTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["id"], "project-1")
         self.assertEqual(self.jobs.synced["project_id"], "project-1")
+
+    def test_project_sync_rejects_blank_text(self):
+        response = self.client.post(
+            "/api/projects/sync",
+            json={"text": "   ", "voice": "speaker.wav"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Text is empty")
+
+    def test_get_project_returns_404_for_missing_project(self):
+        response = self.client.get("/api/projects/missing-project")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Project not found")
+
+    def test_project_update_returns_serialized_project(self):
+        response = self.client.patch(
+            "/api/projects/project-1",
+            json={"title": "Upraveny projekt", "pinned": True},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["title"], "Upraveny projekt")
+        self.assertTrue(payload["pinned"])
+        self.assertEqual(
+            self.jobs.updated_project,
+            {"project_id": "project-1", "title": "Upraveny projekt", "pinned": True},
+        )
+
+    def test_project_update_returns_404_for_missing_project(self):
+        response = self.client.patch(
+            "/api/projects/missing-project",
+            json={"title": "Upraveny projekt"},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Project not found")
+
+    def test_project_delete_returns_ok(self):
+        response = self.client.delete("/api/projects/project-1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True})
+        self.assertEqual(self.jobs.deleted_project_id, "project-1")
+
+    def test_project_delete_returns_404_for_missing_project(self):
+        response = self.client.delete("/api/projects/missing-project")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Project not found")
 
     def test_project_render_returns_existing_project_when_all_blocks_are_ready(self):
         response = self.client.post("/api/projects/project-1/render")
@@ -275,9 +371,27 @@ class HttpAppTests(unittest.TestCase):
         self.assertEqual(response.content, b"project-block-audio")
         self.assertEqual(response.headers["content-type"], "audio/wav")
 
+    def test_project_block_audio_returns_400_for_block_that_is_not_ready(self):
+        response = self.client.get("/api/projects/project-1/blocks/1/audio")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Block status is running")
+
+    def test_project_block_audio_returns_404_for_missing_block(self):
+        response = self.client.get("/api/projects/project-1/blocks/99/audio")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Block not found")
+
     def test_project_download_returns_attachment_file(self):
         response = self.client.get("/api/projects/project-1/download")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"project-final-audio")
         self.assertIn("attachment", response.headers["content-disposition"])
+
+    def test_project_download_returns_404_for_missing_project(self):
+        response = self.client.get("/api/projects/missing-project/download")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Project not found")

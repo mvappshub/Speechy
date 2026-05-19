@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { splitTextIntoParagraphChunks } from "../domain/chunking";
 import type { ProjectSnapshot } from "../domain/types";
-import { cleanReaderText } from "../domain/textCleaning";
-import { getWorkflowStageForBlocks } from "../domain/workflow";
-import { copyToClipboard } from "../infrastructure/clipboard";
-import { createProject, deleteProject, fetchProject, fetchProjects, updateProject } from "../infrastructure/ttsApi";
+import { fetchProject, fetchProjects, createProject, updateProject } from "../infrastructure/ttsApi";
+import { useReaderControllerHandlers } from "./readerControllerHandlers";
+import { applySplitBlocksState, buildResolvedBlockVoices, clearReaderProjectState, prepareReaderProject } from "./readerProjectCommands";
 import { initialReaderState, readerReducer } from "./readerReducer";
 import { readerActions } from "./readerActions";
 import { useReaderSettings } from "./useReaderSettings";
@@ -38,7 +37,7 @@ export function useReaderController() {
   const openPlaybackProject = playbackSession.onProjectOpen;
   const chunks = state.workflowStage !== "editing" ? playbackSession.playbackChunks ?? paragraphChunks : [];
 
-  const applyOpenedProject = useCallback(
+  const openProjectIntoReader = useCallback(
     async (project: ProjectSnapshot) => {
       hydratedProjectIdRef.current = project.id;
       await openPlaybackProject(project);
@@ -46,6 +45,23 @@ export function useReaderController() {
     },
     [openPlaybackProject],
   );
+
+  const clearActiveProjectState = useCallback(
+    (options?: { stopPlayback?: boolean }) => {
+      hydratedProjectIdRef.current = null;
+      if (options?.stopPlayback) {
+        playbackSession.onStop();
+      }
+      clearReaderProjectState(dispatch);
+    },
+    [dispatch, playbackSession],
+  );
+  const setHydratedProjectId = useCallback((projectId: string | null) => {
+    hydratedProjectIdRef.current = projectId;
+  }, []);
+  const markInitialRestoreDone = useCallback(() => {
+    initialRestoreDoneRef.current = true;
+  }, []);
 
   useEffect(() => {
     if (!chunks.length && state.selectedChunk !== 0) {
@@ -83,36 +99,87 @@ export function useReaderController() {
       try {
         const project = await fetchProject(state.currentProjectId!);
         if (cancelled) return;
-        await applyOpenedProject(project);
+        await openProjectIntoReader(project);
       } catch {
         if (cancelled) return;
-        hydratedProjectIdRef.current = null;
-        dispatch(readerActions.setCurrentProject(null));
-        resetReaderEditingState(dispatch);
+        clearActiveProjectState();
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [applyOpenedProject, state.currentProjectId]);
+  }, [clearActiveProjectState, openProjectIntoReader, state.currentProjectId]);
 
-  const resolveBlockVoices = useCallback(
-    (voices: string[], fallbackVoice: string) =>
-      paragraphChunks.map((_, index) => voices[index] ?? fallbackVoice),
-    [paragraphChunks],
-  );
+  const handlers = useReaderControllerHandlers({
+    state,
+    dispatch,
+    paragraphChunks,
+    playbackSession,
+    refreshProjects,
+    clearActiveProjectState,
+  });
 
-  async function onProjectOpen(projectOrId: ProjectSnapshot | string) {
+  const onSplitBlocks = useCallback(async () => {
+    if (!paragraphChunks.length) return;
     try {
-      initialRestoreDoneRef.current = true;
+      markInitialRestoreDone();
+      const nextBlockVoices = buildResolvedBlockVoices(paragraphChunks, state.blockVoices, state.selectedVoice);
+      applySplitBlocksState(dispatch, paragraphChunks.length, nextBlockVoices);
+      const project = await prepareReaderProject({
+        prepareProject: playbackSession.prepareProject,
+        projectId: state.currentProjectId,
+        text: state.text,
+        voice: state.selectedVoice,
+        speed: state.speed,
+        blocks: paragraphChunks,
+        blockVoices: nextBlockVoices,
+      });
+      if (project) {
+        setHydratedProjectId(project.id);
+      }
+    } catch (error) {
+      dispatch(readerActions.setError(error instanceof Error ? error.message : "Bloky se nepodařilo připravit."));
+    }
+  }, [dispatch, markInitialRestoreDone, paragraphChunks, playbackSession.prepareProject, setHydratedProjectId, state.blockVoices, state.currentProjectId, state.selectedVoice, state.speed, state.text]);
+
+  const onProjectOpen = useCallback(async (projectOrId: ProjectSnapshot | string) => {
+    try {
+      markInitialRestoreDone();
       const project = typeof projectOrId === "string" ? await fetchProject(projectOrId) : projectOrId;
-      await applyOpenedProject(project);
+      await openProjectIntoReader(project);
       await refreshProjects();
     } catch (error) {
       dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo otevřít."));
     }
-  }
+  }, [dispatch, markInitialRestoreDone, openProjectIntoReader, refreshProjects]);
+
+  const onProjectCreate = useCallback(async () => {
+    try {
+      markInitialRestoreDone();
+      dispatch(readerActions.setError(null));
+      const project = await createProject();
+      await openProjectIntoReader(project);
+      await refreshProjects();
+    } catch (error) {
+      dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo vytvořit."));
+    }
+  }, [dispatch, markInitialRestoreDone, openProjectIntoReader, refreshProjects]);
+
+  const onProjectRename = useCallback(async (projectId: string, title: string) => {
+    try {
+      markInitialRestoreDone();
+      dispatch(readerActions.setError(null));
+      await updateProject(projectId, { title });
+      await refreshProjects();
+      if (state.currentProjectId === projectId) {
+        const project = await fetchProject(projectId);
+        await openProjectIntoReader(project);
+      }
+    } catch (error) {
+      dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo přejmenovat."));
+    }
+  }, [dispatch, markInitialRestoreDone, openProjectIntoReader, refreshProjects, state.currentProjectId]);
 
   return {
     state,
@@ -121,170 +188,10 @@ export function useReaderController() {
     downloadUrl: playbackSession.downloadUrl,
     playbackStatus: playbackSession.playbackStatus,
     textareaRef: playbackSession.textareaRef,
-    onTextChange: (value: string) => {
-      dispatch(readerActions.setText(value));
-      resetReaderEditingState(dispatch);
-    },
-    onSpeedChange: (value: number) => dispatch(readerActions.setSpeed(value)),
-    onVolumeChange: (value: number) => dispatch(readerActions.setVolume(value)),
-    onTextScaleChange: (value: number) => dispatch(readerActions.setTextScale(value)),
-    onVoiceChange: (value: string) => {
-      dispatch(readerActions.setVoice(value));
-      if (!state.isBlockMode) {
-        dispatch(readerActions.setBlockVoices(resolveBlockVoices([], value)));
-        return;
-      }
-
-      const resolvedBlockVoices = resolveBlockVoices(state.blockVoices, state.selectedVoice);
-      if (state.isBlockMode) {
-        void playbackSession.prepareProject({
-          projectId: state.currentProjectId,
-          text: state.text,
-          voice: value,
-          speed: state.speed,
-          blocks: paragraphChunks,
-          blockVoices: resolvedBlockVoices,
-        });
-      }
-    },
-    onBlockVoiceChange: (index: number, voice: string) => {
-      const nextBlockVoices = resolveBlockVoices(state.blockVoices, state.selectedVoice).map(
-        (currentVoice, blockIndex) => (blockIndex === index ? voice : currentVoice),
-      );
-      dispatch(readerActions.setBlockVoices(nextBlockVoices));
-      dispatch(readerActions.setWorkflowStage("assigning"));
-      if (state.isBlockMode) {
-        void playbackSession.prepareProject({
-          projectId: state.currentProjectId,
-          text: state.text,
-          voice: state.selectedVoice,
-          speed: state.speed,
-          blocks: paragraphChunks,
-          blockVoices: nextBlockVoices,
-        });
-      }
-    },
-    onSplitBlocks: async () => {
-      if (!paragraphChunks.length) return;
-      try {
-        initialRestoreDoneRef.current = true;
-        dispatch(readerActions.setError(null));
-        dispatch(readerActions.setBlockMode(true));
-        dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(paragraphChunks.length)));
-        dispatch(readerActions.selectChunk(0));
-        const nextBlockVoices = resolveBlockVoices(state.blockVoices, state.selectedVoice);
-        dispatch(readerActions.setBlockVoices(nextBlockVoices));
-        const project = await playbackSession.prepareProject({
-          projectId: state.currentProjectId,
-          text: state.text,
-          voice: state.selectedVoice,
-          speed: state.speed,
-          blocks: paragraphChunks,
-          blockVoices: nextBlockVoices,
-        });
-        if (project) {
-          hydratedProjectIdRef.current = project.id;
-        }
-      } catch (error) {
-        dispatch(readerActions.setError(error instanceof Error ? error.message : "Bloky se nepodařilo připravit."));
-      }
-    },
-    onCopy: () => copyToClipboard(state.text),
-    onPlay: playbackSession.onPlay,
-    onPause: playbackSession.onPause,
-    onResume: playbackSession.onResume,
-    onStop: playbackSession.onStop,
-    onDismissError: () => dispatch(readerActions.setError(null)),
-    onCleanText: () => {
-      dispatch(readerActions.setText(cleanReaderText(state.text)));
-      resetReaderEditingState(dispatch);
-    },
-    onClear: () => {
-      hydratedProjectIdRef.current = null;
-      playbackSession.onStop();
-      dispatch(readerActions.setCurrentProject(null));
-      dispatch(readerActions.setText(""));
-      resetReaderEditingState(dispatch);
-    },
-    onEditorDoubleClick: playbackSession.onEditorDoubleClick,
-    onChunkClick: playbackSession.onChunkClick,
-    onVoiceUpload: playbackSession.onVoiceUpload,
+    ...handlers,
+    onSplitBlocks,
     onProjectOpen,
-    onProjectCreate: async () => {
-      try {
-        initialRestoreDoneRef.current = true;
-        dispatch(readerActions.setError(null));
-        const project = await createProject();
-        await applyOpenedProject(project);
-        await refreshProjects();
-      } catch (error) {
-        dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo vytvořit."));
-      }
-    },
-    onProjectRename: async (projectId: string, title: string) => {
-      try {
-        initialRestoreDoneRef.current = true;
-        dispatch(readerActions.setError(null));
-        await updateProject(projectId, { title });
-        await refreshProjects();
-        if (state.currentProjectId === projectId) {
-          const project = await fetchProject(projectId);
-          await applyOpenedProject(project);
-        }
-      } catch (error) {
-        dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo přejmenovat."));
-      }
-    },
-    onProjectPin: async (projectId: string, pinned: boolean) => {
-      try {
-        dispatch(readerActions.setError(null));
-        await updateProject(projectId, { pinned });
-        await refreshProjects();
-      } catch (error) {
-        dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo připnout."));
-      }
-    },
-    onProjectDelete: async (projectId: string) => {
-      try {
-        dispatch(readerActions.setError(null));
-        await deleteProject(projectId);
-        if (state.currentProjectId === projectId) {
-          hydratedProjectIdRef.current = null;
-          dispatch(readerActions.setCurrentProject(null));
-          dispatch(readerActions.setText(""));
-          resetReaderEditingState(dispatch);
-        }
-        await refreshProjects();
-      } catch (error) {
-        dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt se nepodařilo smazat."));
-      }
-    },
-    onBlockVoiceUpload: async (index: number, file: File) => {
-      try {
-        dispatch(readerActions.setError(null));
-        const uploadedVoice = await playbackSession.onVoiceUpload(file);
-        if (!uploadedVoice) return;
-
-        const nextBlockVoices = resolveBlockVoices(state.blockVoices, state.selectedVoice).map(
-          (currentVoice, blockIndex) => (blockIndex === index ? uploadedVoice : currentVoice),
-        );
-
-        dispatch(readerActions.setBlockVoices(nextBlockVoices));
-        dispatch(readerActions.setWorkflowStage("assigning"));
-
-        if (state.isBlockMode) {
-          await playbackSession.prepareProject({
-            projectId: state.currentProjectId,
-            text: state.text,
-            voice: state.selectedVoice,
-            speed: state.speed,
-            blocks: paragraphChunks,
-            blockVoices: nextBlockVoices,
-          });
-        }
-      } catch (error) {
-        dispatch(readerActions.setError(error instanceof Error ? error.message : "Hlas se nepodařilo nahrát."));
-      }
-    },
+    onProjectCreate,
+    onProjectRename,
   };
 }

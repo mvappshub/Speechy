@@ -6,6 +6,10 @@ const root = process.cwd();
 const limits = [
   ["src/app/page.tsx", 20],
   ["tts-server/server.py", 20],
+  ["src/features/reader/application/useReaderController.ts", 230],
+  ["src/features/reader/application/useLongFormPlaybackSession.ts", 420],
+  ["tts-server/infrastructure/project_store.py", 250],
+  ["tts-server/presentation/http.py", 280],
 ];
 
 for (const [file, maxLines] of limits) {

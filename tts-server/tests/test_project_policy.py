@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from domain.project_cache_policy import build_synced_project_blocks
+from domain.project_hydration import hydrate_loaded_project
 from domain.project_timeline import recompute_project_timeline
 
 
@@ -76,3 +77,75 @@ class ProjectPolicyTests(unittest.TestCase):
         self.assertIsNone(project["blocks"][2]["end_ms"])
         self.assertEqual(project["completed_blocks"], 2)
         self.assertEqual(project["total_blocks"], 3)
+
+    def test_hydrate_loaded_project_populates_legacy_defaults_and_cache_keys(self):
+        project = hydrate_loaded_project(
+            {
+                "id": "project-1",
+                "title": "Projekt",
+                "text": "Text",
+                "language": "cs",
+                "selected_voice": "speaker.wav",
+                "settings": {"speed": 1.0},
+                "created_at": 1.0,
+                "updated_at": 2.0,
+                "blocks": [
+                    {
+                        "text": "Prvni blok",
+                        "voice": "speaker.wav",
+                        "status": "queued",
+                    }
+                ],
+            },
+            "fake-runtime",
+        )
+
+        self.assertFalse(project["pinned"])
+        self.assertIsNone(project["final_audio_path"])
+        self.assertFalse(project["download_ready"])
+        self.assertEqual(project["total_blocks"], 1)
+        self.assertEqual(project["completed_blocks"], 0)
+        self.assertEqual(project["blocks"][0]["index"], 0)
+        self.assertIsNotNone(project["blocks"][0]["cache_key"])
+        self.assertFalse(project["blocks"][0]["audio_ready"])
+        self.assertIsNone(project["blocks"][0]["start_ms"])
+        self.assertIsNone(project["blocks"][0]["end_ms"])
+
+    def test_hydrate_loaded_project_recomputes_ready_block_timeline(self):
+        project = hydrate_loaded_project(
+            {
+                "id": "project-1",
+                "title": "Projekt",
+                "text": "Text",
+                "language": "cs",
+                "selected_voice": "speaker.wav",
+                "settings": {"speed": 1.0},
+                "created_at": 1.0,
+                "updated_at": 2.0,
+                "final_audio_path": "final.wav",
+                "blocks": [
+                    {
+                        "text": "Prvni blok",
+                        "voice": "speaker.wav",
+                        "status": "done",
+                        "audio_path": "a.wav",
+                        "duration_ms": 1000,
+                    },
+                    {
+                        "text": "Druhy blok",
+                        "voice": "speaker.wav",
+                        "status": "done",
+                        "audio_path": "b.wav",
+                        "duration_ms": 500,
+                    },
+                ],
+            },
+            "fake-runtime",
+        )
+
+        self.assertTrue(project["download_ready"])
+        self.assertTrue(project["blocks"][0]["audio_ready"])
+        self.assertEqual(project["blocks"][0]["start_ms"], 0)
+        self.assertEqual(project["blocks"][0]["end_ms"], 1000)
+        self.assertEqual(project["blocks"][1]["start_ms"], 1000)
+        self.assertEqual(project["blocks"][1]["end_ms"], 1500)

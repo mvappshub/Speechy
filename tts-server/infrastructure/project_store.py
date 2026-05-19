@@ -5,13 +5,8 @@ from pathlib import Path
 from time import time
 from typing import Any
 
-from domain.project_cache_policy import (
-    build_project_block_filename,
-    build_project_cache_key,
-    build_synced_project_blocks,
-    derive_project_title,
-    normalize_project_text,
-)
+from domain.project_cache_policy import build_project_block_filename, build_synced_project_blocks, derive_project_title, normalize_project_text
+from domain.project_hydration import hydrate_loaded_project
 from domain.project_timeline import recompute_project_timeline
 
 
@@ -76,23 +71,12 @@ class ProjectStore:
         projects: list[dict[str, Any]] = []
         for project_file in self.projects_dir.glob("*/project.json"):
             project = self._read_project_file(project_file)
-            projects.append(
-                {
-                    "id": project["id"],
-                    "title": project["title"],
-                    "preview": normalize_project_text(project["text"])[:96],
-                    "pinned": bool(project.get("pinned", False)),
-                    "created_at": project["created_at"],
-                    "updated_at": project["updated_at"],
-                }
-            )
+            projects.append({"id": project["id"], "title": project["title"], "preview": normalize_project_text(project["text"])[:96], "pinned": bool(project.get("pinned", False)), "created_at": project["created_at"], "updated_at": project["updated_at"]})
         return sorted(projects, key=lambda item: (not item["pinned"], -item["updated_at"]))[:100]
 
     def get_project(self, project_id: str):
         project = self._load_project(project_id)
-        if not project:
-            raise KeyError(project_id)
-        recompute_project_timeline(project)
+        if not project: raise KeyError(project_id)
         return project
 
     def create_project(self, *, title: str | None, selected_voice: str):
@@ -117,13 +101,7 @@ class ProjectStore:
         self._save_project(project)
         return self.get_project(project_id)
 
-    def update_project_metadata(
-        self,
-        project_id: str,
-        *,
-        title: str | None = None,
-        pinned: bool | None = None,
-    ):
+    def update_project_metadata(self, project_id: str, *, title: str | None = None, pinned: bool | None = None):
         project = self.get_project(project_id)
         if title is not None and title.strip():
             project["title"] = title.strip()
@@ -192,32 +170,7 @@ class ProjectStore:
             raise ValueError("missing")
         return project["final_audio_path"]
 
-    def recompute_timeline(self, project_id: str):
-        project = self.get_project(project_id)
-        recompute_project_timeline(project)
-        self._save_project(project)
-
-    def recompute_timeline_data(self, project: dict[str, Any]):
-        recompute_project_timeline(project)
-
-    def build_cache_key(self, *, text: str, voice: str, language: str, settings: dict[str, Any]):
-        return build_project_cache_key(
-            text=text,
-            voice=voice,
-            language=language,
-            settings=settings,
-            model_identity=self.model_identity,
-        )
-
-    def save_project_block_audio(
-        self,
-        *,
-        project_id: str,
-        block_index: int,
-        voice: str,
-        text: str,
-        audio_bytes: bytes,
-    ):
+    def save_project_block_audio(self, *, project_id: str, block_index: int, voice: str, text: str, audio_bytes: bytes):
         project = self.get_project(project_id)
         filename = self._build_block_filename(block_index, voice, text)
         target = self._project_dir(project_id) / "blocks" / filename
@@ -226,15 +179,9 @@ class ProjectStore:
         self._save_project(project)
         return str(target)
 
-    def _build_block_filename(self, block_index: int, voice: str, text: str):
-        return build_project_block_filename(block_index, voice, text)
+    def _build_block_filename(self, block_index: int, voice: str, text: str): return build_project_block_filename(block_index, voice, text)
 
-    def _delete_stale_block_files(
-        self,
-        project: dict[str, Any],
-        previous_blocks: list[dict[str, Any]],
-        next_blocks: list[dict[str, Any]],
-    ):
+    def _delete_stale_block_files(self, project: dict[str, Any], previous_blocks: list[dict[str, Any]], next_blocks: list[dict[str, Any]]):
         next_audio_paths = {block.get("audio_path") for block in next_blocks if block.get("audio_path")}
         for block in previous_blocks:
             if block.get("audio_path") in next_audio_paths:
@@ -256,38 +203,16 @@ class ProjectStore:
         (project_dir / "blocks").mkdir(parents=True, exist_ok=True)
         return project_dir
 
-    def _project_file(self, project_id: str):
-        return self._project_dir(project_id) / "project.json"
+    def _project_file(self, project_id: str): return self._project_dir(project_id) / "project.json"
 
     def _load_project(self, project_id: str):
         project_file = self.projects_dir / project_id / "project.json"
-        if not project_file.exists():
-            return None
+        if not project_file.exists(): return None
         return self._read_project_file(project_file)
 
     def _read_project_file(self, project_file: Path):
         project = json.loads(project_file.read_text(encoding="utf-8"))
-        project.setdefault("pinned", False)
-        project.setdefault("final_audio_path", None)
-        project.setdefault("download_ready", False)
-        project.setdefault("total_blocks", len(project.get("blocks", [])))
-        project.setdefault("completed_blocks", 0)
-        for index, block in enumerate(project.get("blocks", [])):
-            block.setdefault("index", index)
-            block.setdefault("cache_key", self.build_cache_key(
-                text=block["text"],
-                voice=block["voice"],
-                language=project["language"],
-                settings=project["settings"],
-            ))
-            block.setdefault("error", None)
-            block.setdefault("audio_path", None)
-            block.setdefault("audio_ready", False)
-            block.setdefault("duration_ms", None)
-            block.setdefault("sample_rate", None)
-            block.setdefault("start_ms", None)
-            block.setdefault("end_ms", None)
-        return project
+        return hydrate_loaded_project(project, self.model_identity)
 
     def _save_project(self, project: dict[str, Any]):
         project_file = self._project_file(project["id"])
@@ -297,7 +222,6 @@ class ProjectStore:
         legacy_dir = self.base_dir / "projects-db"
         if legacy_dir.exists():
             shutil.rmtree(legacy_dir, ignore_errors=True)
-
         for project_dir in self.projects_dir.iterdir():
             if not project_dir.is_dir():
                 continue

@@ -32,19 +32,34 @@ type ProjectPreparationArgs = {
   refreshProjects: () => Promise<void>;
 };
 
+export function resolveProjectBlockVoices(
+  blocks: PlaybackChunk[],
+  blockVoices: string[],
+  fallbackVoice: string,
+): string[] {
+  return blocks.map((_, index) => blockVoices[index] ?? fallbackVoice);
+}
+
+export function buildProjectPreparationInput(input: ProjectPreparationInput): ProjectPreparationInput {
+  return {
+    ...input,
+    blockVoices: resolveProjectBlockVoices(input.blocks, input.blockVoices, input.voice),
+  };
+}
+
 export function buildProjectSyncInput(input: ProjectPreparationInput): ProjectSyncInput {
-  const resolvedBlockVoices = input.blocks.map((_, index) => input.blockVoices[index] ?? input.voice);
+  const preparedInput = buildProjectPreparationInput(input);
 
   return {
-    projectId: input.projectId,
-    text: input.text,
-    voice: input.voice,
-    blocks: input.blocks.map((chunk, index) => ({
+    projectId: preparedInput.projectId,
+    text: preparedInput.text,
+    voice: preparedInput.voice,
+    blocks: preparedInput.blocks.map((chunk, index) => ({
       text: chunk.text,
-      voice: resolvedBlockVoices[index],
+      voice: preparedInput.blockVoices[index],
     })),
-    blockVoices: resolvedBlockVoices,
-    speed: input.speed,
+    blockVoices: preparedInput.blockVoices,
+    speed: preparedInput.speed,
     language: "cs",
   };
 }
@@ -89,8 +104,9 @@ export function useProjectPreparation({
 }: ProjectPreparationArgs) {
   const prepareProject = useCallback(
     async (input: ProjectPreparationInput) => {
-      if (!input.text.trim() || !input.blocks.length) return null;
-      const project = await syncProject(buildProjectSyncInput(input));
+      const preparedInput = buildProjectPreparationInput(input);
+      if (!preparedInput.text.trim() || !preparedInput.blocks.length) return null;
+      const project = await syncProject(buildProjectSyncInput(preparedInput));
       applyProject(project);
       await refreshProjects();
       return project;

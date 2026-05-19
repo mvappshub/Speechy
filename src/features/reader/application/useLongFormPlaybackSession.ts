@@ -7,49 +7,34 @@ import { canStartPlayback, getStageAfterPlaybackStops, shouldAutoPlayChunkOnClic
 import {
   clearProjectBlockAudioCache,
   fetchProjectBlockAudioBlob,
-  getProjectDownloadUrl,
   preloadProjectBlockAudio,
-  startProjectRender,
   uploadVoice,
 } from "../infrastructure/ttsApi";
 import type { ReaderAction } from "./readerActions";
 import { readerActions } from "./readerActions";
-import { getDesiredPlaybackBlockReason, getPlaybackEndTransition } from "./desiredPlaybackState";
-import {
-  attemptDesiredPlaybackOrStartPolling,
-  shouldStartProjectRender,
-} from "./playbackPollingFlow";
-import {
-  buildPlaybackChunksFromProject,
-  getProjectPlaybackError,
-  resolveProjectDownloadUrl,
-} from "./projectPlaybackView";
+import { getDesiredPlaybackBlockReason } from "./desiredPlaybackState";
+import { buildPlaybackChunksFromProject } from "./projectPlaybackView";
 import { deriveAppliedProjectRuntime } from "./projectPlaybackState";
 import { tracePlaybackEvent } from "./playbackTracing";
 import { applyPlaybackIdleState, applyPlaybackLoadingState } from "./playbackTransitions";
+import {
+  applyOpenedProjectPlaybackState,
+  createPlayBlockAudioCallbacks,
+  resolvePreparedProjectDownloadUrl,
+  startPlaybackForPreparedProject,
+} from "./playbackSessionCommands";
 import type { ReaderState } from "./readerReducer";
 import { useAudioPlaybackSession } from "./useAudioPlaybackSession";
 import { useProjectPolling } from "./useProjectPolling";
-import { applyProjectToReaderState, useProjectPreparation } from "./useProjectPreparation";
+import {
+  applyProjectToReaderState,
+  buildProjectPreparationInput,
+  useProjectPreparation,
+} from "./useProjectPreparation";
 
 type Dispatch = (action: ReaderAction) => void;
 
-type SessionArgs = {
-  state: ReaderState;
-  dispatch: Dispatch;
-  chunks: PlaybackChunk[];
-  refreshVoices: () => Promise<void>;
-  refreshProjects: () => Promise<void>;
-};
-
-function preloadUpcomingBlockAudio(project: ProjectSnapshot, blockIndex: number, queueLength: number) {
-  [blockIndex + 1, blockIndex + 2].forEach((nextIndex) => {
-    if (nextIndex >= queueLength) return;
-    const block = project.blocks[nextIndex];
-    if (!block?.audio_ready) return;
-    void fetchProjectBlockAudioBlob(project.id, nextIndex, block.cache_key).catch(() => {});
-  });
-}
+type SessionArgs = { state: ReaderState; dispatch: Dispatch; chunks: PlaybackChunk[]; refreshVoices: () => Promise<void>; refreshProjects: () => Promise<void> };
 
 export function useLongFormPlaybackSession({
   state,
@@ -106,7 +91,7 @@ export function useLongFormPlaybackSession({
 
   const tryPlayDesiredChunkRef = useRef<(() => Promise<boolean>) | null>(null);
 
-  const transitionPlaybackToIdleWithError = useCallback(
+  const transitionPlaybackToIdle = useCallback(
     (message: string, source: string) => {
       tracePlayback(
         "pollProjectUntilReady error",
@@ -127,9 +112,9 @@ export function useLongFormPlaybackSession({
   const handlePlaybackTransitionFailure = useCallback(
     (error: unknown, source: string) => {
       const message = error instanceof Error ? error.message : "Generování projektu selhalo.";
-      transitionPlaybackToIdleWithError(message, source);
+      transitionPlaybackToIdle(message, source);
     },
-    [transitionPlaybackToIdleWithError],
+    [transitionPlaybackToIdle],
   );
 
   const { resetPollingError, startPolling, stopPolling } = useProjectPolling({
@@ -137,7 +122,7 @@ export function useLongFormPlaybackSession({
     tryStartPlayback: async () => tryPlayDesiredChunkRef.current?.() ?? false,
     shouldKeepPolling: () => desiredChunkRef.current < queueLengthRef.current,
     onFailure: (message) => {
-      transitionPlaybackToIdleWithError(message, "polling");
+      transitionPlaybackToIdle(message, "polling");
     },
     onPollingError: (message, context) => {
       tracePlayback(
@@ -192,87 +177,24 @@ export function useLongFormPlaybackSession({
       }
 
       try {
+        const playbackCallbacks = createPlayBlockAudioCallbacks({
+          blockIndex,
+          dispatch,
+          project,
+          projectRef,
+          desiredChunkRef,
+          queueLengthRef,
+          stopPolling,
+          startPolling,
+          tryPlayDesiredChunk: async () => tryPlayDesiredChunkRef.current?.() ?? false,
+          handlePlaybackTransitionFailure,
+          tracePlayback,
+        });
         const started = await audioPlayback.playBlockAudio({
           blockIndex,
           volume: state.volume,
           loadBlob: () => fetchProjectBlockAudioBlob(project.id, blockIndex, block.cache_key),
-          onEnded: (requestId) => {
-            tracePlayback("onEnded", { blockIndex, requestId }, projectRef.current);
-
-            const transition = getPlaybackEndTransition(blockIndex, queueLengthRef.current);
-            if (transition.type === "idle") {
-              stopPolling();
-              applyPlaybackIdleState(dispatch, queueLengthRef.current > 0);
-              return;
-            }
-
-            desiredChunkRef.current = transition.nextChunkIndex;
-            dispatch(readerActions.setPlaybackState("loading"));
-            void (async () => {
-              await attemptDesiredPlaybackOrStartPolling({
-                projectId: projectRef.current?.id ?? project.id,
-                source: "onEnded",
-                tryPlayDesiredChunk: async () => tryPlayDesiredChunkRef.current?.() ?? false,
-                startPolling,
-              });
-            })().catch((error) => {
-              handlePlaybackTransitionFailure(error, "onEnded");
-            });
-          },
-          onElementError: (requestId) => {
-            tracePlayback(
-              "audioPlayer.play error",
-              { blockIndex, requestId, source: "element-error" },
-              projectRef.current,
-            );
-            dispatch(readerActions.setError("Chyba při přehrávání bloku."));
-            stopPolling();
-            applyPlaybackIdleState(dispatch, queueLengthRef.current > 0);
-          },
-          onTimeUpdate: () => {
-            dispatch(readerActions.selectChunk(blockIndex));
-          },
-          onLoadStart: (requestId) => {
-            tracePlayback("audioPlayer.load start", { blockIndex, requestId }, projectRef.current);
-          },
-          onLoadReady: (requestId) => {
-            tracePlayback("audioPlayer.load ready", { blockIndex, requestId }, projectRef.current);
-          },
-          onLoadError: (requestId, error) => {
-            tracePlayback(
-              "audioPlayer.load error",
-              {
-                blockIndex,
-                requestId,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              projectRef.current,
-            );
-          },
-          onPlayStart: (requestId) => {
-            desiredChunkRef.current = blockIndex;
-            dispatch(readerActions.selectChunk(blockIndex));
-            const currentProject = projectRef.current;
-            if (currentProject) {
-              preloadUpcomingBlockAudio(currentProject, blockIndex, queueLengthRef.current);
-            }
-            tracePlayback("audioPlayer.play start", { blockIndex, requestId }, projectRef.current);
-          },
-          onPlaySuccess: (requestId) => {
-            tracePlayback("audioPlayer.play success", { blockIndex, requestId }, projectRef.current);
-          },
-          onPlayError: (requestId, error) => {
-            tracePlayback(
-              "audioPlayer.play error",
-              {
-                blockIndex,
-                requestId,
-                source: "play-promise",
-                error: error instanceof Error ? error.message : String(error),
-              },
-              projectRef.current,
-            );
-          },
+          ...playbackCallbacks,
         });
         if (!started) return false;
 
@@ -324,18 +246,23 @@ export function useLongFormPlaybackSession({
     refreshProjects,
   });
 
+  const openPreparedProject = useCallback(
+    (project: ProjectSnapshot) => {
+      clearRuntime();
+      applyProject(project);
+      queueLengthRef.current = project.blocks.length;
+      applyOpenedProjectPlaybackState({ project, dispatch, speedFallback: state.speed });
+    },
+    [applyProject, clearRuntime, dispatch, state.speed],
+  );
+
   useEffect(() => {
     playbackStateRef.current = state.playbackState;
     latestSelectedChunkRef.current = state.selectedChunk;
     latestChunksLengthRef.current = chunks.length;
   }, [chunks.length, state.playbackState, state.selectedChunk]);
 
-  useEffect(
-    () => () => {
-      clearRuntime({ resetProgress: false });
-    },
-    [clearRuntime],
-  );
+  useEffect(() => () => { clearRuntime({ resetProgress: false }); }, [clearRuntime]);
 
   const onPlay = useCallback(async () => {
     if (!state.text.trim()) return;
@@ -357,35 +284,25 @@ export function useLongFormPlaybackSession({
     try {
       queueLengthRef.current = chunks.length;
       resetPollingError();
-      const project = await prepareProject({
-        projectId: state.currentProjectId,
-        text: state.text,
-        voice: state.selectedVoice,
-        blocks: chunks,
-        blockVoices: state.blockVoices,
-        speed: state.speed,
-      });
+      const project = await prepareProject(
+        buildProjectPreparationInput({
+          projectId: state.currentProjectId,
+          text: state.text,
+          voice: state.selectedVoice,
+          blocks: chunks,
+          blockVoices: state.blockVoices,
+          speed: state.speed,
+        }),
+      );
       if (!project) return;
-
-       if (shouldStartProjectRender(project)) {
-         tracePlayback(
-           "startProjectRender",
-           {
-            projectId: project.id,
-            reason: "initial-play-request",
-          },
-          project,
-         );
-         const result = await startProjectRender(project.id);
-         applyProject(result.project);
-       }
-       await attemptDesiredPlaybackOrStartPolling({
-         projectId: project.id,
-         source: "onPlay",
-         tryPlayDesiredChunk,
-         startPolling,
-       });
-     } catch (error) {
+      await startPlaybackForPreparedProject({
+        project,
+        applyProject,
+        startPolling,
+        tryPlayDesiredChunk,
+        tracePlayback,
+      });
+    } catch (error) {
       dispatch(readerActions.setError(error instanceof Error ? error.message : "Projekt nelze připravit."));
       clearRuntime();
       applyPlaybackIdleState(dispatch, chunks.length > 0);
@@ -400,6 +317,7 @@ export function useLongFormPlaybackSession({
     prepareProject,
     resetPollingError,
     startPolling,
+    tryPlayDesiredChunk,
     chunks,
     state.blockVoices,
     state.currentProjectId,
@@ -411,10 +329,7 @@ export function useLongFormPlaybackSession({
     state.text,
   ]);
 
-  const onPause = useCallback(() => {
-    audioPlayback.pauseAudio();
-    dispatch(readerActions.setPlaybackState("paused"));
-  }, [audioPlayback, dispatch]);
+  const onPause = useCallback(() => { audioPlayback.pauseAudio(); dispatch(readerActions.setPlaybackState("paused")); }, [audioPlayback, dispatch]);
 
   const onResume = useCallback(async () => {
     const resumed = await audioPlayback.resumeAudio();
@@ -422,10 +337,7 @@ export function useLongFormPlaybackSession({
     dispatch(readerActions.setPlaybackState("playing"));
   }, [audioPlayback, dispatch]);
 
-  const onStop = useCallback(() => {
-    clearRuntime();
-    applyPlaybackIdleState(dispatch, queueLengthRef.current > 0);
-  }, [applyPlaybackIdleState, clearRuntime, dispatch]);
+  const onStop = useCallback(() => { clearRuntime(); applyPlaybackIdleState(dispatch, queueLengthRef.current > 0); }, [applyPlaybackIdleState, clearRuntime, dispatch]);
 
   const onChunkClick = useCallback(
     async (chunk: PlaybackChunk) => {
@@ -460,20 +372,7 @@ export function useLongFormPlaybackSession({
     [applyPlaybackLoadingState, audioPlayback, dispatch, playBlockAtIndex, startPolling, state.workflowStage, stopPolling],
   );
 
-  const onProjectOpen = useCallback(
-    async (project: ProjectSnapshot) => {
-      clearRuntime();
-      applyProject(project);
-      dispatch(readerActions.setError(project.status === "error" ? getProjectPlaybackError(project) : null));
-      queueLengthRef.current = project.blocks.length;
-      dispatch(readerActions.setText(project.text));
-      dispatch(readerActions.setVoice(project.selected_voice));
-      dispatch(readerActions.setSpeed(project.settings.speed ?? state.speed));
-      dispatch(readerActions.selectChunk(0));
-      dispatch(readerActions.setPlaybackState("idle"));
-    },
-    [applyProject, clearRuntime, dispatch, state.speed],
-  );
+  const onProjectOpen = useCallback(async (project: ProjectSnapshot) => { openPreparedProject(project); }, [openPreparedProject]);
 
   return {
     textareaRef,
@@ -485,7 +384,7 @@ export function useLongFormPlaybackSession({
       desiredChunkIndex: desiredChunkRef.current,
     }),
     playbackChunks: buildPlaybackChunksFromProject(projectRef.current, chunks),
-    downloadUrl: resolveProjectDownloadUrl(projectRef.current, getProjectDownloadUrl),
+    downloadUrl: resolvePreparedProjectDownloadUrl(projectRef.current),
     prepareProject,
     onPlay,
     onPause,

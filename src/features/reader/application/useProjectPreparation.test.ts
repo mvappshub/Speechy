@@ -5,9 +5,43 @@ import type { ReaderAction } from "./readerActions";
 import {
   applyOpenedProjectState,
   applyProjectToReaderState,
+  buildProjectPreparationInput,
   buildProjectSyncInput,
+  resolveProjectBlockVoices,
   resetReaderEditingState,
 } from "./useProjectPreparation";
+
+const projectBlocks = [
+  { index: 0, text: "Prvni blok", start: 0, end: 10 },
+  { index: 1, text: "Druhy blok", start: 12, end: 22 },
+] as const;
+
+test("resolveProjectBlockVoices resolves missing block voices to the selected voice", () => {
+  assert.deepEqual(
+    resolveProjectBlockVoices([...projectBlocks], ["speaker-a.wav"], "default.wav"),
+    ["speaker-a.wav", "default.wav"],
+  );
+});
+
+test("buildProjectPreparationInput normalizes block voices before project sync", () => {
+  const input = buildProjectPreparationInput({
+    projectId: "project-1",
+    text: "Prvni blok\n\nDruhy blok",
+    voice: "default.wav",
+    speed: 1.15,
+    blocks: [...projectBlocks],
+    blockVoices: ["speaker-a.wav"],
+  });
+
+  assert.deepEqual(input, {
+    projectId: "project-1",
+    text: "Prvni blok\n\nDruhy blok",
+    voice: "default.wav",
+    speed: 1.15,
+    blocks: [...projectBlocks],
+    blockVoices: ["speaker-a.wav", "default.wav"],
+  });
+});
 
 test("buildProjectSyncInput resolves missing block voices to the selected voice", () => {
   const input = buildProjectSyncInput({
@@ -15,10 +49,7 @@ test("buildProjectSyncInput resolves missing block voices to the selected voice"
     text: "Prvni blok\n\nDruhy blok",
     voice: "default.wav",
     speed: 1.15,
-    blocks: [
-      { index: 0, text: "Prvni blok", start: 0, end: 10 },
-      { index: 1, text: "Druhy blok", start: 12, end: 22 },
-    ],
+    blocks: [...projectBlocks],
     blockVoices: ["speaker-a.wav"],
   });
 

@@ -1,5 +1,4 @@
 import io
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,23 +9,11 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from application.job_service import JobService
+from presentation.dependencies import create_jobs, create_runtime, parse_inference_options
+from presentation.serializers import serialize_project, serialize_render_status
 
 if TYPE_CHECKING:
-    from infrastructure.xtts_runtime import InferenceOptions, XttsRuntime
-
-BASE_DIR = Path(__file__).resolve().parents[1]
-
-
-def _default_runtime():
     from infrastructure.xtts_runtime import XttsRuntime
-
-    return XttsRuntime(BASE_DIR)
-
-
-def _default_jobs(runtime: "XttsRuntime"):
-    configured_storage_dir = os.environ.get("TTS_SERVER_STORAGE_DIR", "").strip()
-    storage_dir = Path(configured_storage_dir) if configured_storage_dir else BASE_DIR / "tmp-jobs"
-    return JobService(runtime, storage_dir=storage_dir)
 
 
 class RenderRequest(BaseModel):
@@ -58,8 +45,8 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         nonlocal runtime_instance, jobs_instance
-        runtime_instance = runtime_instance or _default_runtime()
-        jobs_instance = jobs_instance or _default_jobs(runtime_instance)
+        runtime_instance = runtime_instance or create_runtime()
+        jobs_instance = jobs_instance or create_jobs(runtime_instance)
         app.state.runtime = runtime_instance
         app.state.jobs = jobs_instance
         try:
@@ -82,11 +69,6 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
 
     def get_jobs():
         return app.state.jobs if hasattr(app.state, "jobs") else jobs_instance
-
-    def parse_options(payload: dict):
-        from infrastructure.xtts_runtime import InferenceOptions
-
-        return InferenceOptions(**payload)
 
     @app.get("/api/health")
     async def health():
@@ -130,7 +112,7 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
         try:
             job_id = jobs.create_job(
                 req.text,
-                parse_options(
+                parse_inference_options(
                     {
                         "voice": req.voice,
                         "language": req.language,
@@ -141,36 +123,6 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"id": job_id, "status": "queued"}
-
-    def serialize_project(project: dict):
-        return {
-            "id": project["id"],
-            "title": project["title"],
-            "text": project["text"],
-            "language": project["language"],
-            "pinned": project.get("pinned", False),
-            "selected_voice": project["selected_voice"],
-            "settings": project["settings"],
-            "created_at": project["created_at"],
-            "updated_at": project["updated_at"],
-            "download_ready": project["download_ready"],
-            "status": project["status"],
-            "progress": project["progress"],
-            "blocks": [
-                {
-                    "index": block["index"],
-                    "text": block["text"],
-                    "voice": block["voice"],
-                    "cache_key": block["cache_key"],
-                    "status": block["status"],
-                    "audio_ready": block["audio_ready"],
-                    "start_ms": block["start_ms"],
-                    "end_ms": block["end_ms"],
-                    "error": block["error"],
-                }
-                for block in project["blocks"]
-            ],
-        }
 
     @app.get("/api/projects")
     async def list_projects():
@@ -188,7 +140,7 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
         if not req.text.strip():
             raise HTTPException(status_code=400, detail="Text is empty")
         try:
-            options = parse_options(
+            options = parse_inference_options(
                 {
                     "voice": req.voice,
                     "language": req.language,
@@ -270,11 +222,7 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
             raise HTTPException(status_code=404, detail="Project not found")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"Project download is {exc}")
-        return FileResponse(
-            audio_path,
-            media_type="audio/wav",
-            filename=f"{project_id}.wav",
-        )
+        return FileResponse(audio_path, media_type="audio/wav", filename=f"{project_id}.wav")
 
     @app.get("/api/render/{job_id}")
     async def get_render_status(job_id: str):
@@ -284,32 +232,7 @@ def create_app(runtime: "XttsRuntime | None" = None, jobs: JobService | None = N
         except KeyError:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        return JSONResponse(
-            {
-                "id": job["id"],
-                "status": job["status"],
-                "progress": {
-                    "done": job["completed_blocks"],
-                    "total": job["total_blocks"],
-                },
-                "audio_ready": job["status"] == "done" and bool(job["final_audio_path"]),
-                "download_ready": job["status"] == "done" and bool(job["final_audio_path"]),
-                "timeline": job["timeline"],
-                "blocks": [
-                    {
-                        "index": block["index"],
-                        "text": block["text"],
-                        "status": block["status"],
-                        "audio_ready": bool(block["audio_path"]) and block["status"] == "done",
-                        "start_ms": block["start_ms"],
-                        "end_ms": block["end_ms"],
-                        "error": block["error"],
-                    }
-                    for block in job["blocks"]
-                ],
-                "error": job["error"],
-            }
-        )
+        return JSONResponse(serialize_render_status(job))
 
     @app.get("/api/render/{job_id}/blocks/{block_index}/audio")
     async def get_render_block_audio(job_id: str, block_index: int):
