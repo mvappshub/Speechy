@@ -15,6 +15,11 @@ import {
 import type { ReaderAction } from "./readerActions";
 import { readerActions } from "./readerActions";
 import { getDesiredPlaybackBlockReason, getPlaybackEndTransition } from "./desiredPlaybackState";
+import {
+  buildPlaybackChunksFromProject,
+  getProjectPlaybackError,
+  resolveProjectDownloadUrl,
+} from "./projectPlaybackView";
 import { deriveAppliedProjectRuntime } from "./projectPlaybackState";
 import { tracePlaybackEvent } from "./playbackTracing";
 import { applyPlaybackIdleState, applyPlaybackLoadingState } from "./playbackTransitions";
@@ -32,10 +37,6 @@ type SessionArgs = {
   refreshVoices: () => Promise<void>;
   refreshProjects: () => Promise<void>;
 };
-
-function getProjectError(project: ProjectSnapshot) {
-  return project.blocks.find((block) => block.error)?.error ?? "Generování projektu selhalo.";
-}
 
 function preloadUpcomingBlockAudio(project: ProjectSnapshot, blockIndex: number, queueLength: number) {
   [blockIndex + 1, blockIndex + 2].forEach((nextIndex) => {
@@ -456,7 +457,7 @@ export function useLongFormPlaybackSession({
     async (project: ProjectSnapshot) => {
       clearRuntime();
       applyProject(project);
-      dispatch(readerActions.setError(project.status === "error" ? getProjectError(project) : null));
+      dispatch(readerActions.setError(project.status === "error" ? getProjectPlaybackError(project) : null));
       queueLengthRef.current = project.blocks.length;
       dispatch(readerActions.setText(project.text));
       dispatch(readerActions.setVoice(project.selected_voice));
@@ -476,14 +477,8 @@ export function useLongFormPlaybackSession({
       project: projectRef.current,
       desiredChunkIndex: desiredChunkRef.current,
     }),
-    playbackChunks:
-      projectRef.current?.blocks.map((block) => ({
-        index: block.index,
-        text: block.text,
-        start: block.index,
-        end: block.index + 1,
-      })) ?? chunks,
-    downloadUrl: projectRef.current?.download_ready ? getProjectDownloadUrl(projectRef.current.id) : null,
+    playbackChunks: buildPlaybackChunksFromProject(projectRef.current, chunks),
+    downloadUrl: resolveProjectDownloadUrl(projectRef.current, getProjectDownloadUrl),
     prepareProject,
     onPlay,
     onPause,
