@@ -82,7 +82,7 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
             max_active_jobs=max_active_jobs,
             ttl_seconds=ttl_seconds,
         )
-        service._build_inference_options = lambda payload: SimpleNamespace(**payload)
+        service.legacy_render_service._build_inference_options = lambda payload: SimpleNamespace(**payload)
         return service
 
     async def test_rejects_empty_text(self):
@@ -148,7 +148,7 @@ class JobServiceTests(unittest.IsolatedAsyncioTestCase):
                 max_active_jobs=2,
                 ttl_seconds=60,
             )
-            service._build_inference_options = lambda payload: SimpleNamespace(**payload)
+            service.legacy_render_service._build_inference_options = lambda payload: SimpleNamespace(**payload)
 
             job_id = service.create_job("Prvni veta.", self.make_options())
 

@@ -29,12 +29,12 @@ This document defines where code belongs, what must not mix, and how to decide w
 ├── docs/
 │   ├── constitution.md             # Non-overridable rules
 │   ├── architecture.md             # This file
-│   └── governance.md               # Change process & protected area
+│   ├── governance.md               # Change process & protected area
+│   └── architecture/REFACTOR_PLAN.md
 ├── scripts/
-│   ├── architecture-check.mjs      # Enforces LOC limits, boundaries, no dumping grounds
-│   └── protected-files-check.mjs   # Enforces mixed-diff ban
+│   ├── check-architecture.mjs      # Enforces LOC limits, boundaries, no dumping grounds
+│   └── check-governance.mjs        # Enforces governance record requirement for protected files
 ├── .github/workflows/ci.yml
-├── CODEOWNERS
 └── AGENTS.md                       # Codex operating manual
 ```
 

@@ -1,4 +1,5 @@
 # Governance Change Log
 
+- 2026-05-19: Re-synchronized governance docs and checks with the actual repo state. Canonical governance files remain `docs/constitution.md`, `docs/architecture.md`, and `docs/governance.md`; the old duplicate docs in `docs/architecture/` were removed; `scripts/check-governance.mjs` now watches the canonical files instead of the retired duplicates. Accepted risk: the automated guard still checks only for the presence of this record and does not yet fully enforce the mixed-diff ban described in `docs/governance.md`.
 - 2026-05-01: Tightened architecture guidance for UI/application separation and documented that current orchestration hotspots are refactor debt, not precedent. This keeps the active governance check satisfied while the canonical governance log remains in `docs/governance.md`.
 - 2026-04-14: Introduced layered reader and TTS architecture, plus automated boundary checks and hotspot limits.

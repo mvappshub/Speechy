@@ -1,24 +1,18 @@
-import hashlib
 import json
-import re
 import shutil
 import uuid
 from pathlib import Path
 from time import time
 from typing import Any
 
-
-def _normalize_text(value: str) -> str:
-    return " ".join(value.split())
-
-
-def _derive_title(text: str) -> str:
-    return "Novy projekt"
-
-
-def _slugify(value: str, fallback: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return normalized[:40] or fallback
+from domain.project_cache_policy import (
+    build_project_block_filename,
+    build_project_cache_key,
+    build_synced_project_blocks,
+    derive_project_title,
+    normalize_project_text,
+)
+from domain.project_timeline import recompute_project_timeline
 
 
 class ProjectStore:
@@ -44,47 +38,17 @@ class ProjectStore:
         resolved_id = project_id or str(uuid.uuid4())
         previous = self._load_project(resolved_id)
         previous_blocks = previous["blocks"] if previous else []
-        next_blocks: list[dict[str, Any]] = []
-        block_content_changed = False
-
-        for index, block in enumerate(blocks):
-          cache_key = self.build_cache_key(
-              text=block["text"],
-              voice=block["voice"],
-              language=language,
-              settings=settings,
-          )
-          previous_block = previous_blocks[index] if index < len(previous_blocks) else None
-          reused = (
-              previous_block
-              and _normalize_text(previous_block.get("text", "")) == _normalize_text(block["text"])
-              and previous_block.get("voice") == block["voice"]
-          )
-          if not reused:
-              block_content_changed = True
-          next_blocks.append(
-              {
-                  "index": index,
-                  "text": block["text"],
-                  "voice": block["voice"],
-                  "cache_key": cache_key,
-                  "status": previous_block["status"] if reused else "queued",
-                  "error": previous_block.get("error") if reused else None,
-                  "audio_path": previous_block.get("audio_path") if reused else None,
-                  "audio_ready": previous_block.get("audio_ready", False) if reused else False,
-                  "duration_ms": previous_block.get("duration_ms") if reused else None,
-                  "sample_rate": previous_block.get("sample_rate") if reused else None,
-                  "start_ms": previous_block.get("start_ms") if reused else None,
-                  "end_ms": previous_block.get("end_ms") if reused else None,
-              }
-          )
-
-        if previous and len(previous_blocks) != len(next_blocks):
-            block_content_changed = True
+        next_blocks, block_content_changed = build_synced_project_blocks(
+            previous_blocks=previous_blocks,
+            blocks=blocks,
+            language=language,
+            settings=settings,
+            model_identity=self.model_identity,
+        )
 
         project = {
             "id": resolved_id,
-            "title": previous["title"] if previous else _derive_title(text),
+            "title": previous["title"] if previous else derive_project_title(text),
             "text": text,
             "language": language,
             "pinned": previous["pinned"] if previous else False,
@@ -104,7 +68,7 @@ class ProjectStore:
             if block_content_changed:
                 self._delete_final_audio(project["id"])
 
-        self.recompute_timeline_data(project)
+        recompute_project_timeline(project)
         self._save_project(project)
         return self.get_project(resolved_id)
 
@@ -116,7 +80,7 @@ class ProjectStore:
                 {
                     "id": project["id"],
                     "title": project["title"],
-                    "preview": _normalize_text(project["text"])[:96],
+                    "preview": normalize_project_text(project["text"])[:96],
                     "pinned": bool(project.get("pinned", False)),
                     "created_at": project["created_at"],
                     "updated_at": project["updated_at"],
@@ -128,8 +92,7 @@ class ProjectStore:
         project = self._load_project(project_id)
         if not project:
             raise KeyError(project_id)
-        self.recompute_timeline_data(project)
-        self._save_project(project)
+        recompute_project_timeline(project)
         return project
 
     def create_project(self, *, title: str | None, selected_voice: str):
@@ -200,7 +163,7 @@ class ProjectStore:
         block["sample_rate"] = sample_rate
         block["error"] = error
         project["updated_at"] = time()
-        self.recompute_timeline_data(project)
+        recompute_project_timeline(project)
         self._save_project(project)
 
     def set_final_audio(self, project_id: str, audio_bytes: bytes):
@@ -231,38 +194,20 @@ class ProjectStore:
 
     def recompute_timeline(self, project_id: str):
         project = self.get_project(project_id)
-        self.recompute_timeline_data(project)
+        recompute_project_timeline(project)
         self._save_project(project)
 
     def recompute_timeline_data(self, project: dict[str, Any]):
-        current_ms = 0
-        gaps_detected = False
-        for block in project["blocks"]:
-            duration_ms = block.get("duration_ms")
-            is_ready = block["status"] == "done" and duration_ms is not None and block.get("audio_path")
-            if gaps_detected or not is_ready:
-                block["start_ms"] = None
-                block["end_ms"] = None
-                gaps_detected = True
-            else:
-                block["start_ms"] = current_ms
-                block["end_ms"] = current_ms + int(duration_ms)
-                current_ms = block["end_ms"]
-            block["audio_ready"] = bool(block.get("audio_path")) and block["status"] == "done"
-
-        project["total_blocks"] = len(project["blocks"])
-        project["completed_blocks"] = sum(1 for block in project["blocks"] if block["status"] == "done")
-        project["download_ready"] = bool(project.get("final_audio_path"))
+        recompute_project_timeline(project)
 
     def build_cache_key(self, *, text: str, voice: str, language: str, settings: dict[str, Any]):
-        payload = {
-            "text": _normalize_text(text),
-            "voice": voice,
-            "language": language,
-            "model_identity": self.model_identity,
-        }
-        encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return build_project_cache_key(
+            text=text,
+            voice=voice,
+            language=language,
+            settings=settings,
+            model_identity=self.model_identity,
+        )
 
     def save_project_block_audio(
         self,
@@ -282,9 +227,7 @@ class ProjectStore:
         return str(target)
 
     def _build_block_filename(self, block_index: int, voice: str, text: str):
-        voice_slug = _slugify(Path(voice).stem, "voice")
-        text_slug = _slugify(_normalize_text(text)[:48], f"block-{block_index + 1}")
-        return f"{block_index + 1:02d}-{voice_slug}-{text_slug}.wav"
+        return build_project_block_filename(block_index, voice, text)
 
     def _delete_stale_block_files(
         self,

@@ -1,6 +1,7 @@
 import { useCallback } from "react";
-import type { PlaybackChunk } from "@/lib/chunking";
+import type { PlaybackChunk } from "../domain/chunking";
 import type { ProjectSnapshot } from "../domain/types";
+import { getWorkflowStageForBlocks } from "../domain/workflow";
 import { syncProject } from "../infrastructure/ttsApi";
 import type { ReaderAction } from "./readerActions";
 import { readerActions } from "./readerActions";
@@ -65,6 +66,21 @@ export function applyProjectToReaderState(project: ProjectSnapshot, dispatch: Di
             : "running",
     }),
   );
+}
+
+export function applyOpenedProjectState(project: ProjectSnapshot, dispatch: Dispatch) {
+  dispatch(readerActions.selectChunk(0));
+  dispatch(readerActions.setBlockMode(project.blocks.length > 0));
+  dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(project.blocks.length)));
+  dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
+}
+
+export function resetReaderEditingState(dispatch: Dispatch) {
+  dispatch(readerActions.selectChunk(0));
+  dispatch(readerActions.setBlockMode(false));
+  dispatch(readerActions.setWorkflowStage("editing"));
+  dispatch(readerActions.setBlockVoices([]));
+  dispatch(readerActions.setProgress(null));
 }
 
 export function useProjectPreparation({

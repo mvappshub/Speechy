@@ -44,6 +44,10 @@ local-*
 .claude
 .z-ai-config
 *.log
+*.stderr.log
+*.stdout.log
+*.err
+*.out
 dev.log
 dev-up.err
 dev-up.out
@@ -52,6 +56,8 @@ test
 prompt
 
 server.log
+desktop-dist/
+desktop-logs/
 # Skills directory
 /skills/
 OmniVoice
@@ -71,6 +77,11 @@ tts-server/domain/__pycache__
 tts-server/infrastructure/__pycache__
 tts-server/presentation/__pycache__
 .playwright-mcp/
+.kilo/
+.planner-reviewer/
+.vscode/
+desktop-dist/
+desktop-logs/
 tts-server/tmp-jobs-debug/
 .codex
 .agents/

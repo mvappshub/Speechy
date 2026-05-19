@@ -1,77 +1,10 @@
 import type { Health, ProjectSnapshot, ProjectSummary, RenderStatus, Voice } from "../domain/types";
-
-const DEFAULT_TTS_API_BASE_URL = "http://localhost:8000";
-
-export function getTtsApiBaseUrl() {
-  const configuredBaseUrl = process.env.NEXT_PUBLIC_TTS_API_BASE_URL?.trim();
-  if (!configuredBaseUrl) return DEFAULT_TTS_API_BASE_URL;
-  return configuredBaseUrl.replace(/\/+$/, "");
-}
-
-const API = getTtsApiBaseUrl();
-const projectBlockAudioCache = new Map<string, Blob>();
-let activeAudioCacheProjectId: string | null = null;
-
-type RequestOptions = RequestInit & {
-  errorDetail?: boolean;
-};
-
-function toApiError(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) {
-    if (error.message === "Failed to fetch") {
-      return new Error("Nepodařilo se spojit s TTS backendem.");
-    }
-    return error;
-  }
-  return new Error(fallback);
-}
-
-async function readErrorMessage(response: Response, fallback: string) {
-  const payload = await response.json().catch(() => null);
-  if (payload && typeof payload === "object" && "detail" in payload) {
-    const detail = (payload as { detail?: unknown }).detail;
-    if (typeof detail === "string" && detail) return detail;
-  }
-  return fallback;
-}
-
-async function requestJson<T>(path: string, fallback: string, options: RequestOptions = {}) {
-  const { errorDetail, ...init } = options;
-  try {
-    const response = await fetch(`${API}${path}`, init);
-    if (!response.ok) {
-      throw new Error(errorDetail ? await readErrorMessage(response, fallback) : fallback);
-    }
-    return (await response.json()) as T;
-  } catch (error) {
-    throw toApiError(error, fallback);
-  }
-}
-
-async function requestBlob(path: string, fallback: string, options: RequestOptions = {}) {
-  const { errorDetail, ...init } = options;
-  try {
-    const response = await fetch(`${API}${path}`, init);
-    if (!response.ok) {
-      throw new Error(errorDetail ? await readErrorMessage(response, fallback) : fallback);
-    }
-    return await response.blob();
-  } catch (error) {
-    throw toApiError(error, fallback);
-  }
-}
-
-async function requestVoid(path: string, fallback: string, options: RequestOptions = {}) {
-  const { errorDetail, ...init } = options;
-  try {
-    const response = await fetch(`${API}${path}`, init);
-    if (!response.ok) {
-      throw new Error(errorDetail ? await readErrorMessage(response, fallback) : fallback);
-    }
-  } catch (error) {
-    throw toApiError(error, fallback);
-  }
-}
+import {
+  clearProjectBlockAudioCache,
+  fetchProjectBlockAudioBlob,
+  preloadProjectBlockAudio,
+} from "./projectAudioCache";
+import { getTtsApiBaseUrl, getTtsApiUrl, requestBlob, requestJson, requestVoid } from "./ttsHttpClient";
 
 export async function fetchHealth() {
   return requestJson<Health>("/api/health", "Server unavailable", {
@@ -204,67 +137,16 @@ export async function fetchRenderBlockAudioBlob(jobId: string, blockIndex: numbe
   });
 }
 
-export async function fetchProjectBlockAudioBlob(
-  projectId: string,
-  blockIndex: number,
-  blockCacheKey?: string,
-) {
-  ensureActiveProjectAudioCache(projectId);
-  const cacheKey = `${projectId}:${blockIndex}:${blockCacheKey ?? "unknown"}`;
-  const cached = projectBlockAudioCache.get(cacheKey);
-  if (cached) return cached;
-
-  const start = performance.now();
-  const blob = await requestBlob(
-    `/api/projects/${projectId}/blocks/${blockIndex}/audio`,
-    "Unable to fetch project block audio.",
-    { cache: "no-store" },
-  );
-  const duration = performance.now() - start;
-  if (duration > 1000) {
-    console.log(`[ttsApi] fetchProjectBlockAudioBlob took ${duration.toFixed(0)}ms`);
-  }
-
-  projectBlockAudioCache.set(cacheKey, blob);
-  return blob;
-}
-
-export function clearProjectBlockAudioCache(projectId?: string | null) {
-  if (!projectId || projectId === activeAudioCacheProjectId) {
-    projectBlockAudioCache.clear();
-    activeAudioCacheProjectId = projectId ?? null;
-    return;
-  }
-
-  for (const key of projectBlockAudioCache.keys()) {
-    if (key.startsWith(`${projectId}:`)) {
-      projectBlockAudioCache.delete(key);
-    }
-  }
-}
-
-export function preloadProjectBlockAudio(project: ProjectSnapshot) {
-  ensureActiveProjectAudioCache(project.id);
-  for (const block of project.blocks) {
-    if (!block.audio_ready) continue;
-    void fetchProjectBlockAudioBlob(project.id, block.index, block.cache_key).catch(() => {});
-  }
-}
-
-function ensureActiveProjectAudioCache(projectId: string) {
-  if (activeAudioCacheProjectId === projectId) return;
-  projectBlockAudioCache.clear();
-  activeAudioCacheProjectId = projectId;
-}
-
 export async function fetchRenderAudioBlob(jobId: string) {
   return requestBlob(`/api/render/${jobId}/audio`, "Unable to fetch final audio.");
 }
 
 export function getRenderDownloadUrl(jobId: string) {
-  return `${API}/api/render/${jobId}/download`;
+  return getTtsApiUrl(`/api/render/${jobId}/download`);
 }
 
 export function getProjectDownloadUrl(projectId: string) {
-  return `${API}/api/projects/${projectId}/download`;
+  return getTtsApiUrl(`/api/projects/${projectId}/download`);
 }
+
+export { clearProjectBlockAudioCache, fetchProjectBlockAudioBlob, getTtsApiBaseUrl, preloadProjectBlockAudio };

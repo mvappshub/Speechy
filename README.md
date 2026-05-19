@@ -1,6 +1,10 @@
 # Předčítač Českého Textu
 
-Next.js frontend pro minimalistické čtení českého textu a lokální FastAPI backend pro progresivní OmniVoice voice-clone render.
+Next.js frontend pro české čtení textu a lokální FastAPI backend nad OmniVoice. Projekt dnes podporuje:
+
+- webový vývojový režim
+- produkční standalone web build
+- Windows desktop shell, který si sám startuje frontend i backend
 
 ## Požadavky
 
@@ -27,11 +31,11 @@ ASR fallback pro `create_voice_clone_prompt(ref_audio=..., ref_text=None)` naví
 
 ## Transcript sidecar fallback
 
-OmniVoice prompt creation teď používá tento pořadník:
+OmniVoice prompt creation používá tento pořadník:
 
 1. najde vybraný hlasový `.wav`
 2. zkusí načíst transcript sidecar se stejným stemem
-3. pokud transcript existuje, použije `ref_audio + ref_text` a vůbec nespouští ASR
+3. pokud transcript existuje, použije `ref_audio + ref_text` a nespouští ASR
 4. pokud transcript neexistuje, teprve potom použije ASR fallback
 5. pokud ASR fallback selže, projekt/render skončí s jasnou backend chybou místo visení
 
@@ -47,21 +51,21 @@ tts-server/voices/my-voice.txt
 
 Soubor `.txt` musí být prostý UTF-8 text. Prázdný transcript se bere jako chybějící.
 
-Bundled demo voices `speaker.wav` až `speaker6.wav` teď mají připravené transcript sidecary, takže na tomto repu už nevyžadují ASR fallback pro voice-clone prompt.
+Bundled demo voices `speaker.wav` až `speaker6.wav` mají připravené transcript sidecary, takže v tomto repu už nevyžadují ASR fallback pro voice-clone prompt.
 
 ## Spuštění ve vývoji
 
-Preferovaný způsob:
+Preferovaný start:
 
 ```bash
 node scripts/dev-up.mjs
 ```
 
-Skript spustí backend na `8000` a frontend na prvním volném portu od `3000` výš, vypíše přesnou URL a ukončí oba procesy, pokud jeden z nich spadne.
+Skript spustí backend na pevném portu `8000` a frontend na prvním volném portu od `3000`, vypíše URL a ukončí oba procesy, pokud jeden z nich spadne.
 
 Ruční spuštění:
 
-1. Spusť TTS backend na portu `8000`:
+1. Spusť backend:
 
 ```bash
 cd tts-server
@@ -73,8 +77,6 @@ python server.py
 ```bash
 npm run dev
 ```
-
-Frontend v tomto repu teď běží přes Next.js dev server s Turbopackem.
 
 3. Otevři aplikaci na URL, kterou frontend vypíše v terminálu.
 
@@ -90,20 +92,54 @@ Health endpoint backendu:
 http://localhost:8000/api/health
 ```
 
-## Produkční build
+## Produkční web build
 
 ```bash
 npm run build
 npm run start
 ```
 
+`npm run build` vytváří Next standalone build v `.next/standalone`.
+
+## Desktop build pro Windows
+
+Lokální desktop shell staví na Electronu a při spuštění si sám zvedne:
+
+- TTS backend
+- produkční frontend server
+- jedno desktop okno aplikace
+
+Vývojové spuštění desktop shellu:
+
+```bash
+npm run desktop:start
+```
+
+Portable desktop build:
+
+```bash
+npm run desktop:build
+```
+
+Výstup:
+
+```text
+desktop-dist/Speechy-0.2.0.exe
+desktop-dist/win-unpacked/Speechy.exe
+```
+
+Důležitá poznámka: desktop build zatím není úplně self-contained. Pořád očekává funkční lokální Python + backend závislosti pro `tts-server/`.
+
+Desktop verze ukládá svoje runtime cache, projekty, nahrané hlasy a logy do user-data složky Windows, ne do kořene repa.
+
 ## Ověření
 
 - `npm run lint`
 - `npm run test`
 - `npm run build`
+- `npm run desktop:pack` nebo `npm run desktop:build` při práci na desktop shellu
 
-## Co umí aplikace
+## Co aplikace umí
 
 - vložit nebo upravit český text a uložit ho jako znovuotevíratelný projekt
 - vybrat výchozí hlas, nahrát vlastní `.wav` a přiřadit různé hlasy jednotlivým blokům textu
@@ -116,4 +152,4 @@ npm run start
 - Frontend bez backendu naběhne, ale čtení zůstane nedostupné.
 - Backend při prvním startu inicializuje OmniVoice runtime, takže start může trvat déle.
 - První render může stáhnout OmniVoice/ASR modely z Hugging Face. Bez `HF_TOKEN` funguje i anonymní přístup, ale může být pomalejší.
-- Vývojové logy se zapisují do `dev.log`, produkční start do `server.log`.
+- Vývojové logy webu se zapisují do `dev.log`, produkční web start do `server.log`.

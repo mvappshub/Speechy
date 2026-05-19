@@ -2,6 +2,10 @@
 # Graphify does not automatically follow .gitignore, so mirror local-heavy dirs here.
 
 OmniVoice
+desktop-dist
+desktop-logs
+node_modules
+.next
 tts-server/voices
 tts-server/tmp-jobs
 tts-server/tmp-jobs-debug

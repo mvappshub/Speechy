@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
-import { splitTextIntoParagraphChunks } from "@/lib/chunking";
+import { splitTextIntoParagraphChunks } from "../domain/chunking";
 import type { ProjectSnapshot } from "../domain/types";
 import { cleanReaderText } from "../domain/textCleaning";
 import { getWorkflowStageForBlocks } from "../domain/workflow";
@@ -10,6 +10,7 @@ import { readerActions } from "./readerActions";
 import { useReaderSettings } from "./useReaderSettings";
 import { useReaderHealthAndVoices } from "./useReaderHealthAndVoices";
 import { useLongFormPlaybackSession } from "./useLongFormPlaybackSession";
+import { applyOpenedProjectState, resetReaderEditingState } from "./useProjectPreparation";
 
 export function useReaderController() {
   const [state, dispatch] = useReducer(readerReducer, initialReaderState);
@@ -41,9 +42,7 @@ export function useReaderController() {
     async (project: ProjectSnapshot) => {
       hydratedProjectIdRef.current = project.id;
       await openPlaybackProject(project);
-      dispatch(readerActions.setBlockMode(project.blocks.length > 0));
-      dispatch(readerActions.setWorkflowStage(getWorkflowStageForBlocks(project.blocks.length)));
-      dispatch(readerActions.setBlockVoices(project.blocks.map((block) => block.voice)));
+      applyOpenedProjectState(project, dispatch);
     },
     [openPlaybackProject],
   );
@@ -89,9 +88,7 @@ export function useReaderController() {
         if (cancelled) return;
         hydratedProjectIdRef.current = null;
         dispatch(readerActions.setCurrentProject(null));
-        dispatch(readerActions.setBlockMode(false));
-        dispatch(readerActions.setWorkflowStage("editing"));
-        dispatch(readerActions.setBlockVoices([]));
+        resetReaderEditingState(dispatch);
       }
     })();
 
@@ -126,10 +123,7 @@ export function useReaderController() {
     textareaRef: playbackSession.textareaRef,
     onTextChange: (value: string) => {
       dispatch(readerActions.setText(value));
-      dispatch(readerActions.setBlockMode(false));
-      dispatch(readerActions.setBlockVoices([]));
-      dispatch(readerActions.setWorkflowStage("editing"));
-      dispatch(readerActions.setProgress(null));
+      resetReaderEditingState(dispatch);
     },
     onSpeedChange: (value: number) => dispatch(readerActions.setSpeed(value)),
     onVolumeChange: (value: number) => dispatch(readerActions.setVolume(value)),
@@ -203,20 +197,14 @@ export function useReaderController() {
     onDismissError: () => dispatch(readerActions.setError(null)),
     onCleanText: () => {
       dispatch(readerActions.setText(cleanReaderText(state.text)));
-      dispatch(readerActions.setBlockMode(false));
-      dispatch(readerActions.setBlockVoices([]));
-      dispatch(readerActions.setWorkflowStage("editing"));
-      dispatch(readerActions.setProgress(null));
+      resetReaderEditingState(dispatch);
     },
     onClear: () => {
       hydratedProjectIdRef.current = null;
       playbackSession.onStop();
       dispatch(readerActions.setCurrentProject(null));
-      dispatch(readerActions.setBlockMode(false));
-      dispatch(readerActions.setWorkflowStage("editing"));
       dispatch(readerActions.setText(""));
-      dispatch(readerActions.setBlockVoices([]));
-      dispatch(readerActions.setProgress(null));
+      resetReaderEditingState(dispatch);
     },
     onEditorDoubleClick: playbackSession.onEditorDoubleClick,
     onChunkClick: playbackSession.onChunkClick,
@@ -264,10 +252,7 @@ export function useReaderController() {
           hydratedProjectIdRef.current = null;
           dispatch(readerActions.setCurrentProject(null));
           dispatch(readerActions.setText(""));
-          dispatch(readerActions.setBlockMode(false));
-          dispatch(readerActions.setWorkflowStage("editing"));
-          dispatch(readerActions.setBlockVoices([]));
-          dispatch(readerActions.setProgress(null));
+          resetReaderEditingState(dispatch);
         }
         await refreshProjects();
       } catch (error) {

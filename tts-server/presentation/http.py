@@ -1,4 +1,5 @@
 import io
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,7 +24,9 @@ def _default_runtime():
 
 
 def _default_jobs(runtime: "XttsRuntime"):
-    return JobService(runtime, storage_dir=BASE_DIR / "tmp-jobs")
+    configured_storage_dir = os.environ.get("TTS_SERVER_STORAGE_DIR", "").strip()
+    storage_dir = Path(configured_storage_dir) if configured_storage_dir else BASE_DIR / "tmp-jobs"
+    return JobService(runtime, storage_dir=storage_dir)
 
 
 class RenderRequest(BaseModel):

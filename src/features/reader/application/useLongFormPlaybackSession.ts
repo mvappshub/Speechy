@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { PlaybackChunk } from "@/lib/chunking";
+import type { PlaybackChunk } from "../domain/chunking";
 import { clampChunkIndex, findChunkIndexAtCursor } from "../domain/chunkSelection";
 import { getReaderPlaybackStatus } from "../domain/playbackStatus";
 import type { ProjectSnapshot } from "../domain/types";
@@ -14,6 +14,7 @@ import {
 } from "../infrastructure/ttsApi";
 import type { ReaderAction } from "./readerActions";
 import { readerActions } from "./readerActions";
+import { tracePlaybackEvent } from "./playbackTracing";
 import type { ReaderState } from "./readerReducer";
 import { useAudioPlaybackSession } from "./useAudioPlaybackSession";
 import { useProjectPolling } from "./useProjectPolling";
@@ -28,12 +29,6 @@ type SessionArgs = {
   refreshVoices: () => Promise<void>;
   refreshProjects: () => Promise<void>;
 };
-
-declare global {
-  interface Window {
-    __readerPlaybackTrace?: Array<Record<string, unknown>>;
-  }
-}
 
 function getProjectError(project: ProjectSnapshot) {
   return project.blocks.find((block) => block.error)?.error ?? "Generování projektu selhalo.";
@@ -74,36 +69,14 @@ export function useLongFormPlaybackSession({
     extra: Record<string, unknown> = {},
     projectOverride: ProjectSnapshot | null = projectRef.current,
   ) {
-    const project = projectOverride;
-    const desiredIndex = desiredChunkRef.current;
-    const desiredBlock = project?.blocks[desiredIndex];
-    const audioSnapshot = audioPlayback.getSnapshot();
-    const payload = {
+    tracePlaybackEvent({
       event,
-      timestamp: new Date().toISOString(),
-      desiredChunkRef: desiredIndex,
-      activeChunkRef: audioSnapshot.activeChunk,
-      playbackStateRef: playbackStateRef.current,
-      projectStatus: project?.status ?? null,
-      projectProgressDone: project?.progress.done ?? null,
-      projectProgressTotal: project?.progress.total ?? null,
-      desiredBlock: desiredBlock
-        ? {
-            index: desiredBlock.index,
-            status: desiredBlock.status,
-            audio_ready: desiredBlock.audio_ready,
-            start_ms: desiredBlock.start_ms,
-            end_ms: desiredBlock.end_ms,
-          }
-        : null,
-      ...extra,
-    };
-
-    if (typeof window !== "undefined") {
-      window.__readerPlaybackTrace = [...(window.__readerPlaybackTrace ?? []), payload];
-    }
-
-    console.log("[reader-trace]", payload);
+      extra,
+      project: projectOverride,
+      desiredChunkIndex: desiredChunkRef.current,
+      playbackState: playbackStateRef.current,
+      audioSnapshot: audioPlayback.getSnapshot(),
+    });
   }
 
   const applyProject = useCallback(

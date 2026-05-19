@@ -1,11 +1,13 @@
 import { execSync } from "node:child_process";
 
 const protectedFiles = new Set([
-  "docs/architecture/CONSTITUTION.md",
-  "docs/architecture/BOUNDARIES.md",
-  "docs/architecture/GOVERNANCE.md",
+  "docs/constitution.md",
+  "docs/architecture.md",
+  "docs/governance.md",
+  "AGENTS.md",
   "scripts/check-architecture.mjs",
   "scripts/check-governance.mjs",
+  "package.json",
 ]);
 
 let changed = [];
