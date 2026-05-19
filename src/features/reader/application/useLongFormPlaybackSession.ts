@@ -14,6 +14,7 @@ import {
 } from "../infrastructure/ttsApi";
 import type { ReaderAction } from "./readerActions";
 import { readerActions } from "./readerActions";
+import { getDesiredPlaybackBlockReason, getPlaybackEndTransition } from "./desiredPlaybackState";
 import { deriveAppliedProjectRuntime } from "./projectPlaybackState";
 import { tracePlaybackEvent } from "./playbackTracing";
 import { applyPlaybackIdleState, applyPlaybackLoadingState } from "./playbackTransitions";
@@ -193,14 +194,14 @@ export function useLongFormPlaybackSession({
           onEnded: (requestId) => {
             tracePlayback("onEnded", { blockIndex, requestId }, projectRef.current);
 
-            const nextIndex = blockIndex + 1;
-            if (nextIndex >= queueLengthRef.current) {
+            const transition = getPlaybackEndTransition(blockIndex, queueLengthRef.current);
+            if (transition.type === "idle") {
               stopPolling();
               applyPlaybackIdleState(dispatch, queueLengthRef.current > 0);
               return;
             }
 
-            desiredChunkRef.current = nextIndex;
+            desiredChunkRef.current = transition.nextChunkIndex;
             dispatch(readerActions.setPlaybackState("loading"));
             void (async () => {
               const started = await (tryPlayDesiredChunkRef.current?.() ?? Promise.resolve(false));
@@ -291,29 +292,17 @@ export function useLongFormPlaybackSession({
   const tryPlayDesiredChunk = useCallback(async () => {
     tracePlayback("tryPlayDesiredChunk", { phase: "start" }, projectRef.current);
     const audioSnapshot = audioPlayback.getSnapshot();
-    if (audioSnapshot.activeChunk !== null) {
-      tracePlayback("tryPlayDesiredChunk", { phase: "blocked", reason: "active-chunk" }, projectRef.current);
-      return false;
-    }
-    if (audioSnapshot.pendingLoad) {
-      tracePlayback("tryPlayDesiredChunk", { phase: "blocked", reason: "pending-load" }, projectRef.current);
-      return false;
-    }
-    if (playbackStateRef.current === "paused") {
-      tracePlayback("tryPlayDesiredChunk", { phase: "blocked", reason: "paused" }, projectRef.current);
-      return false;
-    }
-
     const project = projectRef.current;
     const desiredIndex = desiredChunkRef.current;
-    if (!project) {
-      tracePlayback("tryPlayDesiredChunk", { phase: "blocked", reason: "missing-project" }, project);
-      return false;
-    }
-
-    const desiredBlock = project.blocks[desiredIndex];
-    if (!desiredBlock?.audio_ready) {
-      tracePlayback("tryPlayDesiredChunk", { phase: "blocked", reason: "desired-block-not-ready" }, project);
+    const blockedReason = getDesiredPlaybackBlockReason({
+      activeChunk: audioSnapshot.activeChunk,
+      pendingLoad: audioSnapshot.pendingLoad,
+      playbackState: playbackStateRef.current,
+      project,
+      desiredChunkIndex: desiredIndex,
+    });
+    if (blockedReason) {
+      tracePlayback("tryPlayDesiredChunk", { phase: "blocked", reason: blockedReason }, project);
       return false;
     }
 
